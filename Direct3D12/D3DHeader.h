@@ -24,3 +24,5 @@
 using Microsoft::WRL::ComPtr;
 using namespace std;
 using namespace DirectX;
+
+const UINT SWAP_CHAIN_BUFFER_COUNT = 2;

@@ -178,6 +178,9 @@ bool D3DRenderer::Initialize()
 	if (!CreateMainWindow())
 		return false;
 
+	if (!InitDirect3D12())
+		return false;
+
 	// Do the initial resize code.
 	OnResize();
 
@@ -295,5 +298,200 @@ void D3DRenderer::CalculateFrameStats()
 		// Reset for next average.
 		frameCnt = 0;
 		timeElapsed += 1.0f;
+	}
+}
+
+BOOL D3DRenderer::InitDirect3D12()
+{
+#if defined(DEBUG) || defined(_DEBUG)
+	ComPtr<ID3D12Debug> DebugController;
+	ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&DebugController)));
+	DebugController->EnableDebugLayer();
+#endif
+
+	// Create Direct3D
+	CreateDevice();
+	CreateCommandList();
+	CreateSwapChain();
+	CreateDescriptorSize();
+	CreateRtvDescriptorHeap();
+	CreateDsvDescriptorHeap();
+	CreateFence();
+
+	return TRUE;
+}
+
+void D3DRenderer::CreateDevice()
+{
+	ThrowIfFailed(CreateDXGIFactory1(IID_PPV_ARGS(&m_DxgiFactory)));
+
+	HRESULT HardwardResult = D3D12CreateDevice(
+		nullptr,
+		D3D_FEATURE_LEVEL_11_0,
+		IID_PPV_ARGS(&m_D3dDevice));
+
+	if (FAILED(HardwardResult))
+	{
+		ComPtr<IDXGIAdapter> pWardAdapter;
+		ThrowIfFailed(m_DxgiFactory->EnumWarpAdapter(IID_PPV_ARGS(&pWardAdapter)));
+
+		HRESULT HardwardResult = D3D12CreateDevice(
+			pWardAdapter.Get(),
+			D3D_FEATURE_LEVEL_11_0,
+			IID_PPV_ARGS(&m_D3dDevice));
+	}
+}
+
+void D3DRenderer::CreateCommandList()
+{
+	D3D12_COMMAND_QUEUE_DESC QueueDesc = {};
+	QueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+	QueueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+	ThrowIfFailed(m_D3dDevice->CreateCommandQueue(&QueueDesc, IID_PPV_ARGS(&m_CommandQueue)));
+
+	ThrowIfFailed(m_D3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_CommandAlloc)));
+
+	ThrowIfFailed(m_D3dDevice->CreateCommandList(
+		0,
+		D3D12_COMMAND_LIST_TYPE_DIRECT,
+		m_CommandAlloc.Get(),
+		nullptr,
+		IID_PPV_ARGS(&m_CommandList)));
+
+	m_CommandList->Close();
+}
+
+void D3DRenderer::CreateSwapChain()
+{
+	m_CurrentBackBufferIndex = 0;
+	m_SwapChain.Reset();
+
+	DXGI_SWAP_CHAIN_DESC SwapChainDesc;
+	SwapChainDesc.BufferDesc.Width = m_nClientWidth;
+	SwapChainDesc.BufferDesc.Height = m_nClientHeight;
+	SwapChainDesc.BufferDesc.RefreshRate.Numerator = 60;
+	SwapChainDesc.BufferDesc.RefreshRate.Denominator = 1;
+	SwapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	SwapChainDesc.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
+	SwapChainDesc.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
+	SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+	SwapChainDesc.BufferCount = SWAP_CHAIN_BUFFER_COUNT;
+	SwapChainDesc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+	SwapChainDesc.SampleDesc.Count = 1;
+	SwapChainDesc.SampleDesc.Quality = 0;
+	SwapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+	SwapChainDesc.OutputWindow = m_hWnd;
+	SwapChainDesc.Windowed = true;
+
+	ThrowIfFailed(m_DxgiFactory->CreateSwapChain(
+		m_CommandQueue.Get(),
+		&SwapChainDesc,
+		&m_SwapChain));
+
+	for (int i = 0; i < SWAP_CHAIN_BUFFER_COUNT; ++i)
+	{
+		ThrowIfFailed(m_SwapChain->GetBuffer(i, IID_PPV_ARGS(&m_SwapChainBuffer[i])));
+	}
+}
+
+void D3DRenderer::CreateDescriptorSize()
+{
+	m_CbvSrvUavDescriptorSize = m_D3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	m_RtvDescriptorSize = m_D3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+	m_DsvDescriptorSize = m_D3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+}
+
+void D3DRenderer::CreateRtvDescriptorHeap()
+{
+	D3D12_DESCRIPTOR_HEAP_DESC RtvHeapDesc;
+	RtvHeapDesc.NumDescriptors = SWAP_CHAIN_BUFFER_COUNT;
+	RtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+	RtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	RtvHeapDesc.NodeMask = 0;
+	ThrowIfFailed(m_D3dDevice->CreateDescriptorHeap(&RtvHeapDesc, IID_PPV_ARGS(&m_RtvHeap)));
+
+	CD3DX12_CPU_DESCRIPTOR_HANDLE RtvHealHandle(m_RtvHeap->GetCPUDescriptorHandleForHeapStart());
+	for (int i = 0; i < SWAP_CHAIN_BUFFER_COUNT; ++i)
+	{
+		m_SwapChainBufferView[i] = CD3DX12_CPU_DESCRIPTOR_HANDLE(RtvHealHandle, i * m_RtvDescriptorSize);
+		m_D3dDevice->CreateRenderTargetView(m_SwapChainBuffer[i].Get(), nullptr, m_SwapChainBufferView[i]);
+	}
+}
+
+void D3DRenderer::CreateDsvDescriptorHeap()
+{
+	D3D12_DESCRIPTOR_HEAP_DESC DsvHeapDesc;
+	DsvHeapDesc.NumDescriptors = 1;
+	DsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+	DsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	DsvHeapDesc.NodeMask = 0;
+	ThrowIfFailed(m_D3dDevice->CreateDescriptorHeap(&DsvHeapDesc, IID_PPV_ARGS(&m_DsvHeap)));
+
+	D3D12_RESOURCE_DESC DepthStencilDesc;
+	DepthStencilDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	DepthStencilDesc.Alignment = 0;
+	DepthStencilDesc.Width = m_nClientWidth;
+	DepthStencilDesc.Height = m_nClientHeight;
+	DepthStencilDesc.DepthOrArraySize = 1;
+	DepthStencilDesc.MipLevels = 1;
+	DepthStencilDesc.Format = DXGI_FORMAT_R24G8_TYPELESS;
+	DepthStencilDesc.SampleDesc.Count = 1;
+	DepthStencilDesc.SampleDesc.Quality = 0;
+	DepthStencilDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	DepthStencilDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+	D3D12_CLEAR_VALUE OptClear;
+	OptClear.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	OptClear.DepthStencil.Depth = 1.0f;
+	OptClear.DepthStencil.Stencil = 0;
+	ThrowIfFailed(m_D3dDevice->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+		D3D12_HEAP_FLAG_NONE,
+		&DepthStencilDesc,
+		D3D12_RESOURCE_STATE_COMMON,
+		&OptClear,
+		IID_PPV_ARGS(&m_DepthStencilBuffer)));
+
+	D3D12_DEPTH_STENCIL_VIEW_DESC DsvViewDesc;
+	DsvViewDesc.Flags = D3D12_DSV_FLAG_NONE;
+	DsvViewDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+	DsvViewDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	DsvViewDesc.Texture2D.MipSlice = 0;
+
+	m_DepthStencilBufferView = m_DsvHeap->GetCPUDescriptorHandleForHeapStart();
+	m_D3dDevice->CreateDepthStencilView(m_DepthStencilBuffer.Get(), &DsvViewDesc, m_DepthStencilBufferView);
+}
+
+void D3DRenderer::CreateFence()
+{
+	ThrowIfFailed(m_D3dDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_Fence)));
+
+	m_CurrentFence = 0;
+	m_hFenceEvent = CreateEventEx(nullptr, FALSE, FALSE, EVENT_ALL_ACCESS);
+}
+
+void D3DRenderer::CreateViewport()
+{
+	m_ScreenViewport.TopLeftX = 0;
+	m_ScreenViewport.TopLeftY = 0;
+	m_ScreenViewport.Width = static_cast<float>(m_nClientWidth);
+	m_ScreenViewport.Height = static_cast<float>(m_nClientHeight);
+	m_ScreenViewport.MinDepth = 0.0f;
+	m_ScreenViewport.MaxDepth = 1.0f;
+
+	m_ScissorRect = { 0, 0, m_nClientWidth, m_nClientHeight };
+}
+
+void D3DRenderer::FlushCommandQueue()
+{
+	m_CurrentFence++;
+
+	ThrowIfFailed(m_CommandQueue->Signal(m_Fence.Get(), m_CurrentFence));
+
+	if (m_Fence->GetCompletedValue() < m_CurrentFence)
+	{
+		ThrowIfFailed(m_Fence->SetEventOnCompletion(m_CurrentFence, m_hFenceEvent));
+
+		WaitForSingleObject(m_hFenceEvent, INFINITE);
 	}
 }
