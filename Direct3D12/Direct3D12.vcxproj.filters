@@ -15,6 +15,9 @@
     <Filter Include="AMainEntry">
       <UniqueIdentifier>{61cd38e5-37bb-4e0b-a409-f973dbcb0b46}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Shader">
+      <UniqueIdentifier>{319fd009-b185-454b-afcb-43b477b0b7c7}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\Common\Camera.cpp">
@@ -79,5 +82,10 @@
     <ClInclude Include="D3DHeader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="..\Shader\Default.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>

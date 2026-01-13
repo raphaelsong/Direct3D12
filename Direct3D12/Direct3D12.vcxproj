@@ -42,6 +42,11 @@
     <ClInclude Include="D3DRenderer.h" />
     <ClInclude Include="D3DSample.h" />
   </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="..\Shader\Default.hlsl">
+      <EntryPointName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">VS</EntryPointName>
+    </FxCompile>
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>

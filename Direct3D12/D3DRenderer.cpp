@@ -317,6 +317,7 @@ BOOL D3DRenderer::InitDirect3D12()
 	CreateRtvDescriptorHeap();
 	CreateDsvDescriptorHeap();
 	CreateFence();
+	CreateViewport();
 
 	return TRUE;
 }
