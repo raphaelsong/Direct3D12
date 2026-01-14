@@ -27,20 +27,37 @@ private:
 
 public:
 	void BuildGeometry();
+	void BuildMaterials();
+	void BuildRenderItems();
 	void BuildConstantBuffer();
 	void BuildShader();
 	void BuildRootSignature();
 	void BuildInputLayout();
 	void BuildPipelineState();
 
+private:
+	void CreateBoxGeometry();
+	void CreateGridGeometry();
+	void CreateSphereGeometry();
+	void CreateCylinderGeometry();
+	void CreateSkullGeometry();
+
 public:
 	void UpdateObjectCB(float deltaTime);
 	void UpdatePassCB(float deltaTime);
+	void UpdateMaterialCB(float deltaTime);
 
 	void RenderGeometry();
 
 private:
-	std::unique_ptr<GeometryInfo> m_pGeometry;
+	// 기하도형 맵
+	std::unordered_map<std::wstring, std::unique_ptr<GeometryInfo>> m_Geometries;
+
+	// 재질 맵
+	std::unordered_map<std::wstring, std::unique_ptr<MaterialInfo>> m_Materials;
+
+	// 렌더링 할 오브젝트 리스트
+	std::vector<std::unique_ptr<RenderItem>> m_RenderItems;
 
 	// 오브젝트 상수 버퍼
 	ComPtr<ID3D12Resource>	m_ObjectCB = nullptr;
@@ -51,6 +68,11 @@ private:
 	ComPtr<ID3D12Resource>	m_PassCB = nullptr;
 	BYTE* m_PassMappedData = nullptr;
 	UINT m_PassByteSize = 0;
+
+	// 재질 상수 버퍼
+	ComPtr<ID3D12Resource>	m_MaterialCB = nullptr;
+	BYTE* m_MaterialMappedData = nullptr;
+	UINT m_MaterialByteSize = 0;
 
 	// 정점 셰이더, 픽셀 셰이더 변수
 	ComPtr<ID3DBlob> m_VSByteCode = nullptr;

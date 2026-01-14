@@ -31,7 +31,7 @@ const UINT SWAP_CHAIN_BUFFER_COUNT = 2;
 struct Vertex
 {
 	XMFLOAT3 Pos;
-	XMFLOAT4 Color;
+	XMFLOAT3 Normal;
 };
 
 // 오브젝트 구조체
@@ -56,6 +56,43 @@ struct GeometryInfo
 	UINT IndexCount = 0;
 };
 
+struct MaterialInfo
+{
+	std::wstring Name;
+
+	UINT MatCBIndex = 0;
+
+	XMFLOAT4 Albedo = { 1.0f, 1.0f, 1.0f, 1.0f };
+	XMFLOAT3 Fresnel = { 0.01f, 0.01f, 0.01f };
+	float Roughness = 0.25f;
+};
+
+// 렌더링할 아이템 구조체
+struct RenderItem
+{
+	RenderItem() = default;
+
+	XMFLOAT4X4 World = MathHelper::Identity4x4();
+
+	GeometryInfo* Geometry = nullptr;
+	MaterialInfo* Material = nullptr;
+};
+
+// 조명 정보
+#define MAX_LIGHT 16
+
+struct LightInfo
+{
+	UINT		LightType = 0;
+	XMFLOAT3	Strength = { 0.5f, 0.5f, 0.5f };
+	float		FalloffStart = 1.0f;
+	XMFLOAT3	Position = { 0.0f, 0.0f, 0.0f };
+	float		FalloffEnd = 10.0f;
+	XMFLOAT3	Direction = { 0.0f, -1.0f, 0.0f };
+	float		SpotPower = 64.0f;
+	XMFLOAT3	Padding = { 0.0f, 0.0f, 0.0f };
+};
+
 // 오브젝트 개별 상수 버퍼
 struct ObjectConstant
 {
@@ -70,4 +107,17 @@ struct PassConstant
 	XMFLOAT4X4	Proj = MathHelper::Identity4x4();
 	XMFLOAT4X4	InvProj = MathHelper::Identity4x4();
 	XMFLOAT4X4	ViewProj = MathHelper::Identity4x4();
+
+	XMFLOAT4	AmbientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
+	XMFLOAT3	EyePosW = { 0.0f, 0.0f, 0.0f };
+	UINT		LightCount = 0;
+	LightInfo	Lights[MAX_LIGHT];
+};
+
+// 재질 상수 버퍼
+struct MatConstant
+{
+	XMFLOAT4 Albedo = { 1.0f, 1.0f, 1.0f, 1.0f };
+	XMFLOAT3 Fresnel = { 0.01f, 0.01f, 0.01f };
+	float Roughness = 0.25f;
 };
