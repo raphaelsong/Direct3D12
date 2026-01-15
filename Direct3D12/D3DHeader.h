@@ -27,11 +27,20 @@ using namespace DirectX;
 
 const UINT SWAP_CHAIN_BUFFER_COUNT = 2;
 
+enum class RenderLayer : int
+{
+	Opaque = 0,
+	Transparent,
+	AlphaTested,
+	Count
+};
+
 // 정점 구조체
 struct Vertex
 {
 	XMFLOAT3 Pos;
 	XMFLOAT3 Normal;
+	XMFLOAT2 Uv;
 };
 
 // 오브젝트 구조체
@@ -56,11 +65,24 @@ struct GeometryInfo
 	UINT IndexCount = 0;
 };
 
+struct TextureInfo
+{
+	std::wstring Name;
+	std::wstring FileName;
+
+	UINT TextureHeapIndex = 0;
+
+	ComPtr<ID3D12Resource> Resource = nullptr;
+	ComPtr<ID3D12Resource> UploadHeap = nullptr;
+};
+
 struct MaterialInfo
 {
 	std::wstring Name;
 
 	UINT MatCBIndex = 0;
+	UINT Texture_On = 0;
+	UINT TextureHeapIndex = 0;
 
 	XMFLOAT4 Albedo = { 1.0f, 1.0f, 1.0f, 1.0f };
 	XMFLOAT3 Fresnel = { 0.01f, 0.01f, 0.01f };
@@ -72,7 +94,10 @@ struct RenderItem
 {
 	RenderItem() = default;
 
+	UINT ObjectCBIndex = 0;
+
 	XMFLOAT4X4 World = MathHelper::Identity4x4();
+	XMFLOAT4X4 TextureTransform = MathHelper::Identity4x4();
 
 	GeometryInfo* Geometry = nullptr;
 	MaterialInfo* Material = nullptr;
@@ -97,6 +122,7 @@ struct LightInfo
 struct ObjectConstant
 {
 	XMFLOAT4X4	World = MathHelper::Identity4x4();
+	XMFLOAT4X4	TextureTransform = MathHelper::Identity4x4();
 };
 
 // 공용 상수 버퍼
@@ -112,6 +138,11 @@ struct PassConstant
 	XMFLOAT3	EyePosW = { 0.0f, 0.0f, 0.0f };
 	UINT		LightCount = 0;
 	LightInfo	Lights[MAX_LIGHT];
+
+	XMFLOAT4	FogColor = { 0.7f, 0.7f, 0.7f, 1.0f };
+	float		FogStart = 5.0f;
+	float		FogRange = 150.0f;
+	XMFLOAT2	FogPadding = { 0.0f, 0.0f };
 };
 
 // 재질 상수 버퍼
@@ -120,4 +151,6 @@ struct MatConstant
 	XMFLOAT4 Albedo = { 1.0f, 1.0f, 1.0f, 1.0f };
 	XMFLOAT3 Fresnel = { 0.01f, 0.01f, 0.01f };
 	float Roughness = 0.25f;
+	UINT Texture_On = 0;
+	XMFLOAT3 Padding = { 0.0f, 0.0f, 0.0f };
 };

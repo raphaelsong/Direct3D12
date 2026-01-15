@@ -25,6 +25,7 @@ struct Light
 cbuffer cbObject : register(b0)
 {
     float4x4 gWorld;
+    float4x4 gTextureTransform;
 }
 
 cbuffer cbPass : register(b1)
@@ -38,6 +39,10 @@ cbuffer cbPass : register(b1)
     float3 gEyePosW;
     int gLightCount;
     Light gLights[MAXLIGHTS];
+    float4 gFogColor;
+    float gFogStart;
+    float gFogRange;
+    float2 gFogPadding;
 }
 
 cbuffer cbMaterial : register(b2)
@@ -45,6 +50,11 @@ cbuffer cbMaterial : register(b2)
     float4 gAlbedo;
     float3 gFresnel;
     float gRoughness;
+    int gTexture_On;
+    float3 gTexPadding;
 }
 
+Texture2D gTexture_Diffuse : register(t0);
+
+SamplerState gSampler : register(s0);
 #endif

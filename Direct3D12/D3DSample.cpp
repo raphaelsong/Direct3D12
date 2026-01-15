@@ -19,9 +19,11 @@ bool D3DSample::Initialize()
 
     // Rendering Geometry
     BuildGeometry();
+    BuildTextures();
     BuildMaterials();
     BuildRenderItems();
     BuildConstantBuffer();
+    BuildDescriptorHeap();
     BuildShader();
     BuildRootSignature();
     BuildInputLayout();
@@ -86,16 +88,28 @@ void D3DSample::BeginRender()
 
 void D3DSample::Render()
 {
-    m_CommandList->SetPipelineState(m_PipelineState.Get());
+    m_CommandList->SetPipelineState(m_PipelineStates[RenderLayer::Opaque].Get());
 
     m_CommandList->SetGraphicsRootSignature(m_RootSignature.Get());
+
+    // 텍스처 서술자 렌더링 파이프라인에 묶기
+    ID3D12DescriptorHeap* DescritprHeaps[] = { m_TextureDescriptorHeap.Get() };
+    m_CommandList->SetDescriptorHeaps(_countof(DescritprHeaps), DescritprHeaps);
 
     // 공용 상수 버퍼(뷰, 투영 행렬)
     D3D12_GPU_VIRTUAL_ADDRESS PassCBAddress = m_PassCB->GetGPUVirtualAddress();
     m_CommandList->SetGraphicsRootConstantBufferView(1, PassCBAddress);
 
-   // 개별 오브젝트 렌더링
-    RenderGeometry();
+    // 개별 오브젝트 렌더링
+    RenderGeometry(m_RenderItemLayer[(int)RenderLayer::Opaque]);
+
+    // AlphaTested 오브젝트 렌더링
+    m_CommandList->SetPipelineState(m_PipelineStates[RenderLayer::AlphaTested].Get());
+    RenderGeometry(m_RenderItemLayer[(int)RenderLayer::AlphaTested]);
+
+    // Transparent 오브젝트 렌더링
+    m_CommandList->SetPipelineState(m_PipelineStates[RenderLayer::Transparent].Get());
+    RenderGeometry(m_RenderItemLayer[(int)RenderLayer::Transparent]);
 }
 
 void D3DSample::EndRender()
@@ -161,6 +175,59 @@ void D3DSample::BuildGeometry()
     CreateSkullGeometry();
 }
 
+void D3DSample::BuildTextures()
+{
+    UINT TextureHeapIndex = 0;
+
+    auto BrickTexture = std::make_unique<TextureInfo>();
+    BrickTexture->Name = TEXT("BrickTexture");
+    BrickTexture->FileName = TEXT("../Textures/bricks.dds");
+    BrickTexture->TextureHeapIndex = TextureHeapIndex++;
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(
+        m_D3dDevice.Get(),
+        m_CommandList.Get(),
+        BrickTexture->FileName.c_str(),
+        BrickTexture->Resource,
+        BrickTexture->UploadHeap));
+    m_Textures[BrickTexture->Name] = std::move(BrickTexture);
+
+    auto StoneTexture = std::make_unique<TextureInfo>();
+    StoneTexture->Name = TEXT("StoneTexture");
+    StoneTexture->FileName = TEXT("../Textures/stone.dds");
+    StoneTexture->TextureHeapIndex = TextureHeapIndex++;
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(
+        m_D3dDevice.Get(),
+        m_CommandList.Get(),
+        StoneTexture->FileName.c_str(),
+        StoneTexture->Resource,
+        StoneTexture->UploadHeap));
+    m_Textures[StoneTexture->Name] = std::move(StoneTexture);
+
+    auto TileTexture = std::make_unique<TextureInfo>();
+    TileTexture->Name = TEXT("TileTexture");
+    TileTexture->FileName = TEXT("../Textures/tile.dds");
+    TileTexture->TextureHeapIndex = TextureHeapIndex++;
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(
+        m_D3dDevice.Get(),
+        m_CommandList.Get(),
+        TileTexture->FileName.c_str(),
+        TileTexture->Resource,
+        TileTexture->UploadHeap));
+    m_Textures[TileTexture->Name] = std::move(TileTexture);
+
+    auto FenceTexture = std::make_unique<TextureInfo>();
+    FenceTexture->Name = TEXT("FenceTexture");
+    FenceTexture->FileName = TEXT("../Textures/WireFence.dds");
+    FenceTexture->TextureHeapIndex = TextureHeapIndex++;
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(
+        m_D3dDevice.Get(),
+        m_CommandList.Get(),
+        FenceTexture->FileName.c_str(),
+        FenceTexture->Resource,
+        FenceTexture->UploadHeap));
+    m_Textures[FenceTexture->Name] = std::move(FenceTexture);
+}
+
 void D3DSample::BuildMaterials()
 {
     UINT MatCBIndex = 0;
@@ -168,13 +235,17 @@ void D3DSample::BuildMaterials()
     auto Brick = std::make_unique<MaterialInfo>();
     Brick->Name = TEXT("Brick");
     Brick->MatCBIndex = MatCBIndex++;
-    Brick->Albedo = XMFLOAT4(Colors::Red);
+    Brick->Texture_On = 1;
+    Brick->TextureHeapIndex = m_Textures[TEXT("BrickTexture")]->TextureHeapIndex;
+    Brick->Albedo = XMFLOAT4(Colors::LightGray);
     Brick->Fresnel = XMFLOAT3(0.02f, 0.02f, 0.02f);
     Brick->Roughness = 0.1f;
     m_Materials[Brick->Name] = std::move(Brick);
 
     auto Stone = std::make_unique<MaterialInfo>();
     Stone->Name = TEXT("Stone");
+    Stone->Texture_On = 1;
+    Stone->TextureHeapIndex = m_Textures[TEXT("StoneTexture")]->TextureHeapIndex;
     Stone->MatCBIndex = MatCBIndex++;
     Stone->Albedo = XMFLOAT4(Colors::LightSteelBlue);
     Stone->Fresnel = XMFLOAT3(0.05f, 0.05f, 0.05f);
@@ -183,16 +254,28 @@ void D3DSample::BuildMaterials()
 
     auto Tile = std::make_unique<MaterialInfo>();
     Tile->Name = TEXT("Tile");
+    Tile->Texture_On = 1;
+    Tile->TextureHeapIndex = m_Textures[TEXT("TileTexture")]->TextureHeapIndex;
     Tile->MatCBIndex = MatCBIndex++;
     Tile->Albedo = XMFLOAT4(Colors::LightGray);
     Tile->Fresnel = XMFLOAT3(0.02f, 0.02f, 0.02f);
     Tile->Roughness = 0.2f;
     m_Materials[Tile->Name] = std::move(Tile);
 
+    auto Fence = std::make_unique<MaterialInfo>();
+    Fence->Name = TEXT("Fence");
+    Fence->Texture_On = 1;
+    Fence->TextureHeapIndex = m_Textures[TEXT("FenceTexture")]->TextureHeapIndex;
+    Fence->MatCBIndex = MatCBIndex++;
+    Fence->Albedo = XMFLOAT4(Colors::White);
+    Fence->Fresnel = XMFLOAT3(0.1f, 0.1f, 0.1f);
+    Fence->Roughness = 0.25f;
+    m_Materials[Fence->Name] = std::move(Fence);
+
     auto Skull = std::make_unique<MaterialInfo>();
     Skull->Name = TEXT("Skull");
     Skull->MatCBIndex = MatCBIndex++;
-    Skull->Albedo = XMFLOAT4(Colors::White);
+    Skull->Albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 0.5f);
     Skull->Fresnel = XMFLOAT3(0.05f, 0.05f, 0.05f);
     Skull->Roughness = 0.3f;
     m_Materials[Skull->Name] = std::move(Skull);
@@ -200,22 +283,31 @@ void D3DSample::BuildMaterials()
 
 void D3DSample::BuildRenderItems()
 {
+    UINT ObjectCBIndex = 0;
+
     auto GridItem = std::make_unique<RenderItem>();
+    GridItem->ObjectCBIndex = ObjectCBIndex++;
     GridItem->World = MathHelper::Identity4x4();
+    XMStoreFloat4x4(&GridItem->TextureTransform, XMMatrixScaling(8.0f, 8.0f, 1.0f));
     GridItem->Geometry = m_Geometries[TEXT("Grid")].get();
     GridItem->Material = m_Materials[TEXT("Tile")].get();
+    m_RenderItemLayer[(int)RenderLayer::Opaque].push_back(GridItem.get());
     m_RenderItems.push_back(std::move(GridItem));
 
     auto BoxItem = std::make_unique<RenderItem>();
+    BoxItem->ObjectCBIndex = ObjectCBIndex++;
     XMStoreFloat4x4(&BoxItem->World, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
     BoxItem->Geometry = m_Geometries[TEXT("Box")].get();
-    BoxItem->Material = m_Materials[TEXT("Stone")].get();
+    BoxItem->Material = m_Materials[TEXT("Fence")].get();
+    m_RenderItemLayer[(int)RenderLayer::AlphaTested].push_back(BoxItem.get());
     m_RenderItems.push_back(std::move(BoxItem));
 
     auto SkullItem = std::make_unique<RenderItem>();
+    SkullItem->ObjectCBIndex = ObjectCBIndex++;
     XMStoreFloat4x4(&SkullItem->World, XMMatrixScaling(0.5f, 0.5f, 0.5f) * XMMatrixTranslation(0.0f, 1.0f, 0.0f));
     SkullItem->Geometry = m_Geometries[TEXT("Skull")].get();
     SkullItem->Material = m_Materials[TEXT("Skull")].get();
+    m_RenderItemLayer[(int)RenderLayer::Transparent].push_back(SkullItem.get());
     m_RenderItems.push_back(std::move(SkullItem));
 
     for (int i = 0; i < 5; ++i)
@@ -231,24 +323,32 @@ void D3DSample::BuildRenderItems()
         XMMATRIX LeftSphereWorld = XMMatrixTranslation(-5.0f, 3.5f, -10.0f + i * 5.0f);
         XMMATRIX RightSphereWorld = XMMatrixTranslation(+5.0f, 3.5f, -10.0f + i * 5.0f);
 
+        LeftCylinderItem->ObjectCBIndex = ObjectCBIndex++;
         XMStoreFloat4x4(&LeftCylinderItem->World, LeftCylinderWorld);
         LeftCylinderItem->Geometry = m_Geometries[TEXT("Cylinder")].get();
         LeftCylinderItem->Material = m_Materials[TEXT("Brick")].get();
+        m_RenderItemLayer[(int)RenderLayer::Opaque].push_back(LeftCylinderItem.get());
         m_RenderItems.push_back(std::move(LeftCylinderItem));
 
+        RightCylinderItem->ObjectCBIndex = ObjectCBIndex++;
         XMStoreFloat4x4(&RightCylinderItem->World, RightCylinderWorld);
         RightCylinderItem->Geometry = m_Geometries[TEXT("Cylinder")].get();
         RightCylinderItem->Material = m_Materials[TEXT("Brick")].get();
+        m_RenderItemLayer[(int)RenderLayer::Opaque].push_back(RightCylinderItem.get());
         m_RenderItems.push_back(std::move(RightCylinderItem));
 
+        LeftSphereItem->ObjectCBIndex = ObjectCBIndex++;
         XMStoreFloat4x4(&LeftSphereItem->World, LeftSphereWorld);
         LeftSphereItem->Geometry = m_Geometries[TEXT("Sphere")].get();
         LeftSphereItem->Material = m_Materials[TEXT("Stone")].get();
+        m_RenderItemLayer[(int)RenderLayer::Opaque].push_back(LeftSphereItem.get());
         m_RenderItems.push_back(std::move(LeftSphereItem));
 
+        RightSphereItem->ObjectCBIndex = ObjectCBIndex++;
         XMStoreFloat4x4(&RightSphereItem->World, RightSphereWorld);
         RightSphereItem->Geometry = m_Geometries[TEXT("Sphere")].get();
         RightSphereItem->Material = m_Materials[TEXT("Stone")].get();
+        m_RenderItemLayer[(int)RenderLayer::Opaque].push_back(RightSphereItem.get());
         m_RenderItems.push_back(std::move(RightSphereItem));
     }
 }
@@ -309,20 +409,68 @@ void D3DSample::BuildConstantBuffer()
 
 }
 
+void D3DSample::BuildDescriptorHeap()
+{
+    // SRV Heap
+    D3D12_DESCRIPTOR_HEAP_DESC TextureHeapDesc = {};
+    TextureHeapDesc.NumDescriptors = m_Textures.size();
+    TextureHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    TextureHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    ThrowIfFailed(m_D3dDevice->CreateDescriptorHeap(&TextureHeapDesc, IID_PPV_ARGS(&m_TextureDescriptorHeap)));
+
+    for (auto& Texture : m_Textures)
+    {
+        TextureInfo* TexInfo = Texture.second.get();
+
+        CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(m_TextureDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+        hDescriptor.Offset(TexInfo->TextureHeapIndex, m_CbvSrvUavDescriptorSize);
+
+        auto TexResource = TexInfo->Resource;
+        D3D12_SHADER_RESOURCE_VIEW_DESC TexDesc = {};
+        TexDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        TexDesc.Format = TexResource->GetDesc().Format;
+        TexDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        TexDesc.Texture2D.MostDetailedMip = 0;
+        TexDesc.Texture2D.MipLevels = TexResource->GetDesc().MipLevels;
+        TexDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+
+        m_D3dDevice->CreateShaderResourceView(TexResource.Get(), &TexDesc, hDescriptor);
+    }
+}
+
 void D3DSample::BuildShader()
 {
-    m_VSByteCode = d3dUtil::CompileShader(TEXT("../Shader/Default.hlsl"), nullptr, "VS", "vs_5_0");
-    m_PSByteCode = d3dUtil::CompileShader(TEXT("../Shader/Default.hlsl"), nullptr, "PS", "ps_5_0");
+    const D3D_SHADER_MACRO FogDefines[] =
+    {
+        "FOG", "1",
+        NULL, NULL
+    };
+    const D3D_SHADER_MACRO AlphaTestedDefines[] =
+    {
+        "FOG", "1",
+        "ALPHA_TESTED", "1",
+        NULL, NULL
+    };
+
+    m_Shaders[TEXT("VS")] = d3dUtil::CompileShader(TEXT("../Shader/Default.hlsl"), nullptr, "VS", "vs_5_0");
+    m_Shaders[TEXT("PS")] = d3dUtil::CompileShader(TEXT("../Shader/Default.hlsl"), FogDefines, "PS", "ps_5_0");
+    m_Shaders[TEXT("AlphaTestedPS")] = d3dUtil::CompileShader(TEXT("../Shader/Default.hlsl"), AlphaTestedDefines, "PS", "ps_5_0");
 }
 
 void D3DSample::BuildRootSignature()
 {
-    CD3DX12_ROOT_PARAMETER Params[3];
+    CD3DX12_DESCRIPTOR_RANGE TextureTable[1];
+    TextureTable[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // t0 : Diffuse Texture
+
+    CD3DX12_ROOT_PARAMETER Params[4];
     Params[0].InitAsConstantBufferView(0); // 0번 -> b0 : CBV m_ObjectCB
     Params[1].InitAsConstantBufferView(1); // 1번 -> b1 : CBV m_PassCB
     Params[2].InitAsConstantBufferView(2); // 2번 -> b2 : CBV m_MaterialCB
+    Params[3].InitAsDescriptorTable(_countof(TextureTable), TextureTable); // 3번 -> TexTable
 
-    D3D12_ROOT_SIGNATURE_DESC RSDesc = CD3DX12_ROOT_SIGNATURE_DESC(_countof(Params), Params);
+    D3D12_STATIC_SAMPLER_DESC SamplerDesc = CD3DX12_STATIC_SAMPLER_DESC(0); // s0 : Sampler
+
+    D3D12_ROOT_SIGNATURE_DESC RSDesc = CD3DX12_ROOT_SIGNATURE_DESC(_countof(Params), Params, 1, &SamplerDesc);
     RSDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
     ComPtr<ID3DBlob> BlobSignature;
@@ -338,6 +486,7 @@ void D3DSample::BuildInputLayout()
     {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
     };
 }
 
@@ -350,13 +499,13 @@ void D3DSample::BuildPipelineState()
     ObjectDesc.pRootSignature = m_RootSignature.Get();
     ObjectDesc.VS =
     {
-        reinterpret_cast<BYTE*>(m_VSByteCode->GetBufferPointer()),
-        m_VSByteCode->GetBufferSize()
+        reinterpret_cast<BYTE*>(m_Shaders[TEXT("VS")]->GetBufferPointer()),
+        m_Shaders[TEXT("VS")]->GetBufferSize()
     };
     ObjectDesc.PS =
     {
-        reinterpret_cast<BYTE*>(m_PSByteCode->GetBufferPointer()),
-        m_PSByteCode->GetBufferSize()
+        reinterpret_cast<BYTE*>(m_Shaders[TEXT("PS")]->GetBufferPointer()),
+        m_Shaders[TEXT("PS")]->GetBufferSize()
     };
     ObjectDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
     ObjectDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
@@ -369,7 +518,36 @@ void D3DSample::BuildPipelineState()
     ObjectDesc.SampleDesc.Quality = 0;
     ObjectDesc.DSVFormat = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
 
-    ThrowIfFailed(m_D3dDevice->CreateGraphicsPipelineState(&ObjectDesc, IID_PPV_ARGS(&m_PipelineState)));
+    ThrowIfFailed(m_D3dDevice->CreateGraphicsPipelineState(&ObjectDesc, IID_PPV_ARGS(&m_PipelineStates[RenderLayer::Opaque])));
+
+    // PSO : AlphaTested Objects
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC AlphaTestedDesc = ObjectDesc;
+    AlphaTestedDesc.PS = 
+    {
+        reinterpret_cast<BYTE*>(m_Shaders[TEXT("AlphaTestedPS")]->GetBufferPointer()),
+        m_Shaders[TEXT("AlphaTestedPS")]->GetBufferSize()
+    };
+    AlphaTestedDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+    ThrowIfFailed(m_D3dDevice->CreateGraphicsPipelineState(&AlphaTestedDesc, IID_PPV_ARGS(&m_PipelineStates[RenderLayer::AlphaTested])));
+
+    // PSO : Transparent Objects
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC TransparentDesc = ObjectDesc;
+    D3D12_RENDER_TARGET_BLEND_DESC TransparentBlendDesc;
+    TransparentBlendDesc.BlendEnable = true;
+    TransparentBlendDesc.LogicOpEnable = false;
+    TransparentBlendDesc.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+    TransparentBlendDesc.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+    TransparentBlendDesc.BlendOp = D3D12_BLEND_OP_ADD;
+    TransparentBlendDesc.SrcBlendAlpha = D3D12_BLEND_ONE;
+    TransparentBlendDesc.DestBlendAlpha = D3D12_BLEND_ZERO;
+    TransparentBlendDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    TransparentBlendDesc.LogicOp = D3D12_LOGIC_OP_NOOP;
+    TransparentBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+    TransparentDesc.BlendState.RenderTarget[0] = TransparentBlendDesc;
+
+    ThrowIfFailed(m_D3dDevice->CreateGraphicsPipelineState(&TransparentDesc, IID_PPV_ARGS(&m_PipelineStates[RenderLayer::Transparent])));
 }
 
 void D3DSample::CreateBoxGeometry()
@@ -382,6 +560,7 @@ void D3DSample::CreateBoxGeometry()
     {
         Vertices[i].Pos = Mesh.Vertices[i].Position;
         Vertices[i].Normal = Mesh.Vertices[i].Normal;
+        Vertices[i].Uv = Mesh.Vertices[i].TexC;
     }
 
     std::vector<std::int32_t> Indices;
@@ -423,6 +602,7 @@ void D3DSample::CreateGridGeometry()
     {
         Vertices[i].Pos = Mesh.Vertices[i].Position;
         Vertices[i].Normal = Mesh.Vertices[i].Normal;
+        Vertices[i].Uv = Mesh.Vertices[i].TexC;
     }
 
     std::vector<std::int32_t> Indices;
@@ -464,6 +644,7 @@ void D3DSample::CreateSphereGeometry()
     {
         Vertices[i].Pos = Mesh.Vertices[i].Position;
         Vertices[i].Normal = Mesh.Vertices[i].Normal;
+        Vertices[i].Uv = Mesh.Vertices[i].TexC;
     }
 
     std::vector<std::int32_t> Indices;
@@ -505,6 +686,7 @@ void D3DSample::CreateCylinderGeometry()
     {
         Vertices[i].Pos = Mesh.Vertices[i].Position;
         Vertices[i].Normal = Mesh.Vertices[i].Normal;
+        Vertices[i].Uv = Mesh.Vertices[i].TexC;
     }
 
     std::vector<std::int32_t> Indices;
@@ -605,12 +787,15 @@ void D3DSample::UpdateObjectCB(float deltaTime)
     {
         auto RenderItem = m_RenderItems[i].get();
         XMMATRIX World = XMLoadFloat4x4(&RenderItem->World);
+        XMMATRIX TextureTransform = XMLoadFloat4x4(&RenderItem->TextureTransform);
 
         ObjectConstant ObjectCB;
         XMStoreFloat4x4(&ObjectCB.World, XMMatrixTranspose(World));
+        XMStoreFloat4x4(&ObjectCB.TextureTransform, XMMatrixTranspose(TextureTransform));
 
+        UINT ElementIndex = RenderItem->ObjectCBIndex;
         UINT ElementByteSize = (sizeof(ObjectConstant) + 255) & ~255;
-        memcpy(&m_ObjectMappedData[i * ElementByteSize], &ObjectCB, sizeof(ObjectCB));
+        memcpy(&m_ObjectMappedData[ElementIndex * ElementByteSize], &ObjectCB, sizeof(ObjectCB));
     }
 }
 
@@ -645,6 +830,8 @@ void D3DSample::UpdatePassCB(float deltaTime)
     PassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
     PassCB.Lights[2].Strength = { 0.15f, 0.15f, 0.15f };
 
+
+
     memcpy(&m_PassMappedData[0], &PassCB, sizeof(PassCB));
 }
 
@@ -658,6 +845,7 @@ void D3DSample::UpdateMaterialCB(float deltaTime)
         MaterialCB.Albedo = MatInfo->Albedo;
         MaterialCB.Fresnel = MatInfo->Fresnel;
         MaterialCB.Roughness = MatInfo->Roughness;
+        MaterialCB.Texture_On = MatInfo->Texture_On;
 
         UINT MaterialIndex = MatInfo->MatCBIndex;
         UINT MaterialByteSize = (sizeof(MatConstant) + 255) & ~255;
@@ -676,7 +864,7 @@ void D3DSample::RenderGeometry()
 
         // 개별 오브젝트 상수(월드행렬) 버퍼 정보 업로드
         D3D12_GPU_VIRTUAL_ADDRESS ObjectCBAddress = m_ObjectCB->GetGPUVirtualAddress();
-        ObjectCBAddress += i * ObjectCBByteSize;
+        ObjectCBAddress += RenderItem->ObjectCBIndex * ObjectCBByteSize;
 
         m_CommandList->SetGraphicsRootConstantBufferView(0, ObjectCBAddress);
 
@@ -685,6 +873,55 @@ void D3DSample::RenderGeometry()
         MaterialCBAddress += RenderItem->Material->MatCBIndex * MaterialCBByteSize;
 
         m_CommandList->SetGraphicsRootConstantBufferView(2, MaterialCBAddress);
+
+        // 텍스처 버퍼 서술자 업로드
+        CD3DX12_GPU_DESCRIPTOR_HANDLE TextureHeapAddress(m_TextureDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+        TextureHeapAddress.Offset(RenderItem->Material->TextureHeapIndex, m_CbvSrvUavDescriptorSize);
+
+        if (RenderItem->Material->Texture_On)
+        {
+            m_CommandList->SetGraphicsRootDescriptorTable(3, TextureHeapAddress);
+        }
+
+        // 정점 인덱스 토폴로지 연결
+        m_CommandList->IASetVertexBuffers(0, 1, &RenderItem->Geometry->VertexBufferView);
+        m_CommandList->IASetIndexBuffer(&RenderItem->Geometry->IndexBufferView);
+        m_CommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+        // 렌더링
+        m_CommandList->DrawIndexedInstanced(RenderItem->Geometry->IndexCount, 1, 0, 0, 0);
+    }
+}
+
+void D3DSample::RenderGeometry(const std::vector<RenderItem*>& RenderItems)
+{
+    UINT ObjectCBByteSize = (sizeof(ObjectConstant) + 255) & ~255;
+    UINT MaterialCBByteSize = (sizeof(MatConstant) + 255) & ~255;
+
+    for (size_t i = 0; i < RenderItems.size(); ++i)
+    {
+        auto RenderItem = RenderItems[i];
+
+        // 개별 오브젝트 상수(월드행렬) 버퍼 정보 업로드
+        D3D12_GPU_VIRTUAL_ADDRESS ObjectCBAddress = m_ObjectCB->GetGPUVirtualAddress();
+        ObjectCBAddress += RenderItem->ObjectCBIndex * ObjectCBByteSize;
+
+        m_CommandList->SetGraphicsRootConstantBufferView(0, ObjectCBAddress);
+
+        // 개별 오브젝트 재질 버퍼 정보 업로드
+        D3D12_GPU_VIRTUAL_ADDRESS MaterialCBAddress = m_MaterialCB->GetGPUVirtualAddress();
+        MaterialCBAddress += RenderItem->Material->MatCBIndex * MaterialCBByteSize;
+
+        m_CommandList->SetGraphicsRootConstantBufferView(2, MaterialCBAddress);
+
+        // 텍스처 버퍼 서술자 업로드
+        CD3DX12_GPU_DESCRIPTOR_HANDLE TextureHeapAddress(m_TextureDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+        TextureHeapAddress.Offset(RenderItem->Material->TextureHeapIndex, m_CbvSrvUavDescriptorSize);
+
+        if (RenderItem->Material->Texture_On)
+        {
+            m_CommandList->SetGraphicsRootDescriptorTable(3, TextureHeapAddress);
+        }
 
         // 정점 인덱스 토폴로지 연결
         m_CommandList->IASetVertexBuffers(0, 1, &RenderItem->Geometry->VertexBufferView);

@@ -27,9 +27,11 @@ private:
 
 public:
 	void BuildGeometry();
+	void BuildTextures();
 	void BuildMaterials();
 	void BuildRenderItems();
 	void BuildConstantBuffer();
+	void BuildDescriptorHeap();
 	void BuildShader();
 	void BuildRootSignature();
 	void BuildInputLayout();
@@ -48,16 +50,23 @@ public:
 	void UpdateMaterialCB(float deltaTime);
 
 	void RenderGeometry();
+	void RenderGeometry(const std::vector<RenderItem*>& RenderItems);
 
 private:
 	// 기하도형 맵
 	std::unordered_map<std::wstring, std::unique_ptr<GeometryInfo>> m_Geometries;
+
+	// 텍스처 맵
+	std::unordered_map<std::wstring, std::unique_ptr<TextureInfo>> m_Textures;
 
 	// 재질 맵
 	std::unordered_map<std::wstring, std::unique_ptr<MaterialInfo>> m_Materials;
 
 	// 렌더링 할 오브젝트 리스트
 	std::vector<std::unique_ptr<RenderItem>> m_RenderItems;
+
+	// 렌더링 아이템을 레이어로 분리
+	std::vector<RenderItem*> m_RenderItemLayer[(int)RenderLayer::Count];
 
 	// 오브젝트 상수 버퍼
 	ComPtr<ID3D12Resource>	m_ObjectCB = nullptr;
@@ -74,9 +83,8 @@ private:
 	BYTE* m_MaterialMappedData = nullptr;
 	UINT m_MaterialByteSize = 0;
 
-	// 정점 셰이더, 픽셀 셰이더 변수
-	ComPtr<ID3DBlob> m_VSByteCode = nullptr;
-	ComPtr<ID3DBlob> m_PSByteCode = nullptr;
+	// 텍스처 서술자 힙
+	ComPtr<ID3D12DescriptorHeap> m_TextureDescriptorHeap = nullptr;
 
 	// 루트 시그니처
 	ComPtr<ID3D12RootSignature> m_RootSignature = nullptr;
@@ -84,8 +92,11 @@ private:
 	// 입력 배치
 	std::vector<D3D12_INPUT_ELEMENT_DESC> m_InputLayout;
 
-	// 렌더링 파이프라인 상태 
-	ComPtr<ID3D12PipelineState> m_PipelineState = nullptr;
+	// 셰이더 맵
+	std::unordered_map<std::wstring, ComPtr<ID3DBlob>> m_Shaders;
+
+	// 렌더링 파이프라인 맵
+	std::unordered_map<RenderLayer, ComPtr<ID3D12PipelineState>> m_PipelineStates;
 
 private:
 	// 시야 행렬, 투영 행렬
