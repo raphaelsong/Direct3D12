@@ -90,6 +90,9 @@
     <FxCompile Include="..\Shader\LightingUtil.hlsl">
       <Filter>Shader</Filter>
     </FxCompile>
+    <FxCompile Include="..\Shader\Skybox.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\Shader\Params.hlsli">

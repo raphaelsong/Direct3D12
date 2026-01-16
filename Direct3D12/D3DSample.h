@@ -68,6 +68,9 @@ private:
 	// 렌더링 아이템을 레이어로 분리
 	std::vector<RenderItem*> m_RenderItemLayer[(int)RenderLayer::Count];
 
+	// 스카이박스 텍스처 정보
+	std::unique_ptr<TextureInfo> m_SkyboxTexture;
+
 	// 오브젝트 상수 버퍼
 	ComPtr<ID3D12Resource>	m_ObjectCB = nullptr;
 	BYTE* m_ObjectMappedData = nullptr;

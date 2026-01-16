@@ -51,10 +51,31 @@ cbuffer cbMaterial : register(b2)
     float3 gFresnel;
     float gRoughness;
     int gTexture_On;
-    float3 gTexPadding;
+    int gNormal_On;
+    float2 gTexPadding;
 }
 
 Texture2D gTexture_Diffuse : register(t0);
+Texture2D gTexture_Normal : register(t1);
+TextureCube gCube_Skybox : register(t2);
 
 SamplerState gSampler : register(s0);
+
+// 노말맵 샘플 -> 월드 스페이스
+float3 NormalSampleToWorldSpace(float3 normalMapSample, float3 unitNormalW, float3 tangentW)
+{
+    // [0, 1] -> [-1, 1]
+    float3 normalT = 2.0f * normalMapSample - 1.0f;
+    
+    // TBN Matrix
+    float3 N = unitNormalW;
+    float3 T = normalize(tangentW - dot(tangentW, N) * N);
+    float3 B = cross(N, T);
+    
+    float3x3 TBN = float3x3(T, B, N);
+    
+    float3 bumpedNormalW = mul(normalT, TBN);
+
+    return bumpedNormalW;
+}
 #endif

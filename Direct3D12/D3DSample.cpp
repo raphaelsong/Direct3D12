@@ -88,8 +88,6 @@ void D3DSample::BeginRender()
 
 void D3DSample::Render()
 {
-    m_CommandList->SetPipelineState(m_PipelineStates[RenderLayer::Opaque].Get());
-
     m_CommandList->SetGraphicsRootSignature(m_RootSignature.Get());
 
     // 텍스처 서술자 렌더링 파이프라인에 묶기
@@ -100,7 +98,18 @@ void D3DSample::Render()
     D3D12_GPU_VIRTUAL_ADDRESS PassCBAddress = m_PassCB->GetGPUVirtualAddress();
     m_CommandList->SetGraphicsRootConstantBufferView(1, PassCBAddress);
 
+    // 스카이박스 텍스처 렌더링 파이프라인에 묶기
+    CD3DX12_GPU_DESCRIPTOR_HANDLE SkyboxHeapAddress(m_TextureDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+    SkyboxHeapAddress.Offset(m_SkyboxTexture->TextureHeapIndex, m_CbvSrvUavDescriptorSize);
+
+    m_CommandList->SetGraphicsRootDescriptorTable(4, SkyboxHeapAddress);
+
+    // 스카이박스 오브젝트 렌더링
+    m_CommandList->SetPipelineState(m_PipelineStates[RenderLayer::Skybox].Get());
+    RenderGeometry(m_RenderItemLayer[(int)RenderLayer::Skybox]);
+
     // 개별 오브젝트 렌더링
+    m_CommandList->SetPipelineState(m_PipelineStates[RenderLayer::Opaque].Get());
     RenderGeometry(m_RenderItemLayer[(int)RenderLayer::Opaque]);
 
     // AlphaTested 오브젝트 렌더링
@@ -191,6 +200,18 @@ void D3DSample::BuildTextures()
         BrickTexture->UploadHeap));
     m_Textures[BrickTexture->Name] = std::move(BrickTexture);
 
+    auto BrickNormal = std::make_unique<TextureInfo>();
+    BrickNormal->Name = TEXT("BrickNormal");
+    BrickNormal->FileName = TEXT("../Textures/bricks_nmap.dds");
+    BrickNormal->TextureHeapIndex = TextureHeapIndex++;
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(
+        m_D3dDevice.Get(),
+        m_CommandList.Get(),
+        BrickNormal->FileName.c_str(),
+        BrickNormal->Resource,
+        BrickNormal->UploadHeap));
+    m_Textures[BrickNormal->Name] = std::move(BrickNormal);
+
     auto StoneTexture = std::make_unique<TextureInfo>();
     StoneTexture->Name = TEXT("StoneTexture");
     StoneTexture->FileName = TEXT("../Textures/stone.dds");
@@ -215,6 +236,18 @@ void D3DSample::BuildTextures()
         TileTexture->UploadHeap));
     m_Textures[TileTexture->Name] = std::move(TileTexture);
 
+    auto TileNormal = std::make_unique<TextureInfo>();
+    TileNormal->Name = TEXT("TileNormal");
+    TileNormal->FileName = TEXT("../Textures/tile_nmap.dds");
+    TileNormal->TextureHeapIndex = TextureHeapIndex++;
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(
+        m_D3dDevice.Get(),
+        m_CommandList.Get(),
+        TileNormal->FileName.c_str(),
+        TileNormal->Resource,
+        TileNormal->UploadHeap));
+    m_Textures[TileNormal->Name] = std::move(TileNormal);
+
     auto FenceTexture = std::make_unique<TextureInfo>();
     FenceTexture->Name = TEXT("FenceTexture");
     FenceTexture->FileName = TEXT("../Textures/WireFence.dds");
@@ -226,6 +259,18 @@ void D3DSample::BuildTextures()
         FenceTexture->Resource,
         FenceTexture->UploadHeap));
     m_Textures[FenceTexture->Name] = std::move(FenceTexture);
+
+    // 스카이박스 텍스처 생성하기
+    m_SkyboxTexture = std::make_unique<TextureInfo>();
+    m_SkyboxTexture->Name = TEXT("Skybox");
+    m_SkyboxTexture->FileName = TEXT("../Textures/grasscube1024.dds");
+    m_SkyboxTexture->TextureHeapIndex = TextureHeapIndex++;
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(
+        m_D3dDevice.Get(),
+        m_CommandList.Get(),
+        m_SkyboxTexture->FileName.c_str(),
+        m_SkyboxTexture->Resource,
+        m_SkyboxTexture->UploadHeap));
 }
 
 void D3DSample::BuildMaterials()
@@ -237,6 +282,7 @@ void D3DSample::BuildMaterials()
     Brick->MatCBIndex = MatCBIndex++;
     Brick->Texture_On = 1;
     Brick->TextureHeapIndex = m_Textures[TEXT("BrickTexture")]->TextureHeapIndex;
+    Brick->Normal_On = 1;
     Brick->Albedo = XMFLOAT4(Colors::LightGray);
     Brick->Fresnel = XMFLOAT3(0.02f, 0.02f, 0.02f);
     Brick->Roughness = 0.1f;
@@ -256,6 +302,7 @@ void D3DSample::BuildMaterials()
     Tile->Name = TEXT("Tile");
     Tile->Texture_On = 1;
     Tile->TextureHeapIndex = m_Textures[TEXT("TileTexture")]->TextureHeapIndex;
+    Tile->Normal_On = 1;
     Tile->MatCBIndex = MatCBIndex++;
     Tile->Albedo = XMFLOAT4(Colors::LightGray);
     Tile->Fresnel = XMFLOAT3(0.02f, 0.02f, 0.02f);
@@ -279,6 +326,24 @@ void D3DSample::BuildMaterials()
     Skull->Fresnel = XMFLOAT3(0.05f, 0.05f, 0.05f);
     Skull->Roughness = 0.3f;
     m_Materials[Skull->Name] = std::move(Skull);
+
+    // 스카이박스 재질 추가
+    auto Skybox = std::make_unique<MaterialInfo>();
+    Skybox->Name = TEXT("Skybox");
+    Skybox->MatCBIndex = MatCBIndex++;
+    Skybox->Albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    Skybox->Fresnel = XMFLOAT3(0.1f, 0.1f, 0.1f);
+    Skybox->Roughness = 1.0f;
+    m_Materials[Skybox->Name] = std::move(Skybox);
+
+    // 거울 반사 재질
+    auto Mirror = std::make_unique<MaterialInfo>();
+    Mirror->Name = TEXT("Mirror");
+    Mirror->MatCBIndex = MatCBIndex++;
+    Mirror->Albedo = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
+    Mirror->Fresnel = XMFLOAT3(0.98f, 0.97f, 0.95f);
+    Mirror->Roughness = 0.1f;
+    m_Materials[Mirror->Name] = std::move(Mirror);
 }
 
 void D3DSample::BuildRenderItems()
@@ -340,17 +405,26 @@ void D3DSample::BuildRenderItems()
         LeftSphereItem->ObjectCBIndex = ObjectCBIndex++;
         XMStoreFloat4x4(&LeftSphereItem->World, LeftSphereWorld);
         LeftSphereItem->Geometry = m_Geometries[TEXT("Sphere")].get();
-        LeftSphereItem->Material = m_Materials[TEXT("Stone")].get();
+        LeftSphereItem->Material = m_Materials[TEXT("Mirror")].get();
         m_RenderItemLayer[(int)RenderLayer::Opaque].push_back(LeftSphereItem.get());
         m_RenderItems.push_back(std::move(LeftSphereItem));
 
         RightSphereItem->ObjectCBIndex = ObjectCBIndex++;
         XMStoreFloat4x4(&RightSphereItem->World, RightSphereWorld);
         RightSphereItem->Geometry = m_Geometries[TEXT("Sphere")].get();
-        RightSphereItem->Material = m_Materials[TEXT("Stone")].get();
+        RightSphereItem->Material = m_Materials[TEXT("Mirror")].get();
         m_RenderItemLayer[(int)RenderLayer::Opaque].push_back(RightSphereItem.get());
         m_RenderItems.push_back(std::move(RightSphereItem));
     }
+
+    // 스카이박스 오브젝트 생성
+    auto SkyboxItem = std::make_unique<RenderItem>();
+    SkyboxItem->ObjectCBIndex = ObjectCBIndex++;
+    XMStoreFloat4x4(&SkyboxItem->World, XMMatrixScaling(5000.0f, 5000.0f, 5000.0f));
+    SkyboxItem->Geometry = m_Geometries[TEXT("Box")].get();
+    SkyboxItem->Material = m_Materials[TEXT("Skybox")].get();
+    m_RenderItemLayer[(int)RenderLayer::Skybox].push_back(SkyboxItem.get());
+    m_RenderItems.push_back(std::move(SkyboxItem));
 }
 
 void D3DSample::BuildConstantBuffer()
@@ -412,8 +486,9 @@ void D3DSample::BuildConstantBuffer()
 void D3DSample::BuildDescriptorHeap()
 {
     // SRV Heap
+    // 텍스처 맵 갯수 + 스카이박스 텍스처 갯수
     D3D12_DESCRIPTOR_HEAP_DESC TextureHeapDesc = {};
-    TextureHeapDesc.NumDescriptors = m_Textures.size();
+    TextureHeapDesc.NumDescriptors = m_Textures.size() + 1;
     TextureHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     TextureHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(m_D3dDevice->CreateDescriptorHeap(&TextureHeapDesc, IID_PPV_ARGS(&m_TextureDescriptorHeap)));
@@ -436,6 +511,21 @@ void D3DSample::BuildDescriptorHeap()
 
         m_D3dDevice->CreateShaderResourceView(TexResource.Get(), &TexDesc, hDescriptor);
     }
+
+    // 스카이박스 텍스처 힙 생성하기
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(m_TextureDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+    hDescriptor.Offset(m_SkyboxTexture->TextureHeapIndex, m_CbvSrvUavDescriptorSize);
+
+    auto SkyboxResource = m_SkyboxTexture->Resource;
+    D3D12_SHADER_RESOURCE_VIEW_DESC SkyboxDesc = {};
+    SkyboxDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    SkyboxDesc.Format = SkyboxResource->GetDesc().Format;
+    SkyboxDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+    SkyboxDesc.TextureCube.MostDetailedMip = 0;
+    SkyboxDesc.TextureCube.MipLevels = SkyboxResource->GetDesc().MipLevels;
+    SkyboxDesc.TextureCube.ResourceMinLODClamp = 0.0f;
+
+    m_D3dDevice->CreateShaderResourceView(SkyboxResource.Get(), &SkyboxDesc, hDescriptor);
 }
 
 void D3DSample::BuildShader()
@@ -455,18 +545,26 @@ void D3DSample::BuildShader()
     m_Shaders[TEXT("VS")] = d3dUtil::CompileShader(TEXT("../Shader/Default.hlsl"), nullptr, "VS", "vs_5_0");
     m_Shaders[TEXT("PS")] = d3dUtil::CompileShader(TEXT("../Shader/Default.hlsl"), FogDefines, "PS", "ps_5_0");
     m_Shaders[TEXT("AlphaTestedPS")] = d3dUtil::CompileShader(TEXT("../Shader/Default.hlsl"), AlphaTestedDefines, "PS", "ps_5_0");
+
+    m_Shaders[TEXT("SkyboxVS")] = d3dUtil::CompileShader(TEXT("../Shader/Skybox.hlsl"), nullptr, "VS", "vs_5_0");
+    m_Shaders[TEXT("SkyboxPS")] = d3dUtil::CompileShader(TEXT("../Shader/Skybox.hlsl"), nullptr, "PS", "ps_5_0");
 }
 
 void D3DSample::BuildRootSignature()
 {
-    CD3DX12_DESCRIPTOR_RANGE TextureTable[1];
+    CD3DX12_DESCRIPTOR_RANGE TextureTable[2];
     TextureTable[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // t0 : Diffuse Texture
+    TextureTable[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); // t1 : Normal Texture
 
-    CD3DX12_ROOT_PARAMETER Params[4];
+    CD3DX12_DESCRIPTOR_RANGE SkyboxTable[1];
+    SkyboxTable[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2); // t2 : Skybox Texture
+
+    CD3DX12_ROOT_PARAMETER Params[5];
     Params[0].InitAsConstantBufferView(0); // 0번 -> b0 : CBV m_ObjectCB
     Params[1].InitAsConstantBufferView(1); // 1번 -> b1 : CBV m_PassCB
     Params[2].InitAsConstantBufferView(2); // 2번 -> b2 : CBV m_MaterialCB
     Params[3].InitAsDescriptorTable(_countof(TextureTable), TextureTable); // 3번 -> TexTable
+    Params[4].InitAsDescriptorTable(_countof(SkyboxTable), SkyboxTable); // 4번 -> Skybox Table
 
     D3D12_STATIC_SAMPLER_DESC SamplerDesc = CD3DX12_STATIC_SAMPLER_DESC(0); // s0 : Sampler
 
@@ -487,6 +585,7 @@ void D3DSample::BuildInputLayout()
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
     };
 }
 
@@ -548,6 +647,30 @@ void D3DSample::BuildPipelineState()
     TransparentDesc.BlendState.RenderTarget[0] = TransparentBlendDesc;
 
     ThrowIfFailed(m_D3dDevice->CreateGraphicsPipelineState(&TransparentDesc, IID_PPV_ARGS(&m_PipelineStates[RenderLayer::Transparent])));
+
+
+    // PSO : Skybox Objects
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC SkyboxDesc = ObjectDesc;
+    // 컬링 제거
+    SkyboxDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+    // 깊이스텐실 버퍼 컬링 제거
+    SkyboxDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+
+    SkyboxDesc.pRootSignature = m_RootSignature.Get();
+
+    SkyboxDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(m_Shaders[TEXT("SkyboxVS")]->GetBufferPointer()),
+        m_Shaders[TEXT("SkyboxVS")]->GetBufferSize()
+    };
+    SkyboxDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(m_Shaders[TEXT("SkyboxPS")]->GetBufferPointer()),
+        m_Shaders[TEXT("SkyboxPS")]->GetBufferSize()
+    };
+
+    ThrowIfFailed(m_D3dDevice->CreateGraphicsPipelineState(&SkyboxDesc, IID_PPV_ARGS(&m_PipelineStates[RenderLayer::Skybox])));
 }
 
 void D3DSample::CreateBoxGeometry()
@@ -561,6 +684,7 @@ void D3DSample::CreateBoxGeometry()
         Vertices[i].Pos = Mesh.Vertices[i].Position;
         Vertices[i].Normal = Mesh.Vertices[i].Normal;
         Vertices[i].Uv = Mesh.Vertices[i].TexC;
+        Vertices[i].TangentU = Mesh.Vertices[i].TangentU;
     }
 
     std::vector<std::int32_t> Indices;
@@ -603,6 +727,7 @@ void D3DSample::CreateGridGeometry()
         Vertices[i].Pos = Mesh.Vertices[i].Position;
         Vertices[i].Normal = Mesh.Vertices[i].Normal;
         Vertices[i].Uv = Mesh.Vertices[i].TexC;
+        Vertices[i].TangentU = Mesh.Vertices[i].TangentU;
     }
 
     std::vector<std::int32_t> Indices;
@@ -645,6 +770,7 @@ void D3DSample::CreateSphereGeometry()
         Vertices[i].Pos = Mesh.Vertices[i].Position;
         Vertices[i].Normal = Mesh.Vertices[i].Normal;
         Vertices[i].Uv = Mesh.Vertices[i].TexC;
+        Vertices[i].TangentU = Mesh.Vertices[i].TangentU;
     }
 
     std::vector<std::int32_t> Indices;
@@ -687,6 +813,7 @@ void D3DSample::CreateCylinderGeometry()
         Vertices[i].Pos = Mesh.Vertices[i].Position;
         Vertices[i].Normal = Mesh.Vertices[i].Normal;
         Vertices[i].Uv = Mesh.Vertices[i].TexC;
+        Vertices[i].TangentU = Mesh.Vertices[i].TangentU;
     }
 
     std::vector<std::int32_t> Indices;
@@ -846,6 +973,7 @@ void D3DSample::UpdateMaterialCB(float deltaTime)
         MaterialCB.Fresnel = MatInfo->Fresnel;
         MaterialCB.Roughness = MatInfo->Roughness;
         MaterialCB.Texture_On = MatInfo->Texture_On;
+        MaterialCB.Normal_On = MatInfo->Normal_On;
 
         UINT MaterialIndex = MatInfo->MatCBIndex;
         UINT MaterialByteSize = (sizeof(MatConstant) + 255) & ~255;

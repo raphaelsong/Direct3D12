@@ -9,6 +9,7 @@ struct VertexIn
     float3 PosL : POSITION;
     float3 NormalL : NORMAL;
     float2 Uv : TEXCOORD;
+    float3 TangentU : TANGENT;
 };
 
 struct VertexOut
@@ -17,6 +18,7 @@ struct VertexOut
     float3 PosW : POSITION;
     float3 NormalW : NORMAL;
     float2 Uv : TEXCOORD;
+    float3 TangentW : TANGENT;
 };
 
 VertexOut VS(VertexIn vin)
@@ -29,6 +31,8 @@ VertexOut VS(VertexIn vin)
     
     float4 Uv = mul(float4(vin.Uv, 0.0f, 1.0f), gTextureTransform);
     vout.Uv = Uv.xy;
+    
+    vout.TangentW = mul(vin.TangentU, (float3x3) gWorld);
     return vout;
 }
 
@@ -47,6 +51,14 @@ float4 PS(VertexOut pin) : SV_Target
     
     pin.NormalW = normalize(pin.NormalW);
     
+    float4 normalMapSample;
+    float3 bumpedNormalW = pin.NormalW;
+    if(gNormal_On)
+    {
+        normalMapSample = gTexture_Normal.Sample(gSampler, pin.Uv);
+        bumpedNormalW = NormalSampleToWorldSpace(normalMapSample.rgb, pin.NormalW, pin.TangentW);
+    }    
+    
     float3 toEyeW = normalize(gEyePosW - pin.PosW);
     
     float4 ambient = gAmbientLight * diffuseAlbedo;
@@ -55,9 +67,14 @@ float4 PS(VertexOut pin) : SV_Target
     
     Material mat = { diffuseAlbedo, gFresnel, shininess };
     
-    float4 directLight = ComputeLighting(gLights, gLightCount, mat, pin.PosW, pin.NormalW, toEyeW);
+    float4 directLight = ComputeLighting(gLights, gLightCount, mat, pin.PosW, bumpedNormalW, toEyeW);
     
     float4 litColor = ambient + directLight;
+    
+    float3 r = reflect(-toEyeW, pin.NormalW);
+    float4 rColor = gCube_Skybox.Sample(gSampler, r);
+    float3 fresnalFactor = SchlickFresnel(gFresnel, pin.NormalW, r);
+    litColor.rgb += shininess * fresnalFactor * rColor.rgb;
     
 #ifdef FOG
     float distToEye = length(gEyePosW - pin.PosW);

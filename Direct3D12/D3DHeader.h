@@ -32,6 +32,7 @@ enum class RenderLayer : int
 	Opaque = 0,
 	Transparent,
 	AlphaTested,
+	Skybox,
 	Count
 };
 
@@ -41,6 +42,7 @@ struct Vertex
 	XMFLOAT3 Pos;
 	XMFLOAT3 Normal;
 	XMFLOAT2 Uv;
+	XMFLOAT3 TangentU;
 };
 
 // 오브젝트 구조체
@@ -83,6 +85,8 @@ struct MaterialInfo
 	UINT MatCBIndex = 0;
 	UINT Texture_On = 0;
 	UINT TextureHeapIndex = 0;
+
+	UINT Normal_On = 0;
 
 	XMFLOAT4 Albedo = { 1.0f, 1.0f, 1.0f, 1.0f };
 	XMFLOAT3 Fresnel = { 0.01f, 0.01f, 0.01f };
@@ -152,5 +156,6 @@ struct MatConstant
 	XMFLOAT3 Fresnel = { 0.01f, 0.01f, 0.01f };
 	float Roughness = 0.25f;
 	UINT Texture_On = 0;
-	XMFLOAT3 Padding = { 0.0f, 0.0f, 0.0f };
+	UINT Normal_On = 0;
+	XMFLOAT2 Padding = { 0.0f, 0.0f };
 };
