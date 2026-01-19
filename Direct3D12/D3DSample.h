@@ -43,6 +43,8 @@ private:
 	void CreateSphereGeometry();
 	void CreateCylinderGeometry();
 	void CreateSkullGeometry();
+	void CreateQuadPatchGeometry();
+	void CreateTreeGeometry();
 
 public:
 	void UpdateObjectCB(float deltaTime);
@@ -94,6 +96,12 @@ private:
 
 	// 입력 배치
 	std::vector<D3D12_INPUT_ELEMENT_DESC> m_InputLayout;
+
+	// 바닥 입력 배치
+	std::vector<D3D12_INPUT_ELEMENT_DESC> m_QuadPatchInputLayout;
+
+	// 나무 입력 배치
+	std::vector<D3D12_INPUT_ELEMENT_DESC> m_TreeInputLayout;
 
 	// 셰이더 맵
 	std::unordered_map<std::wstring, ComPtr<ID3DBlob>> m_Shaders;

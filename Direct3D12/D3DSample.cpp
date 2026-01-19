@@ -112,9 +112,17 @@ void D3DSample::Render()
     m_CommandList->SetPipelineState(m_PipelineStates[RenderLayer::Opaque].Get());
     RenderGeometry(m_RenderItemLayer[(int)RenderLayer::Opaque]);
 
+    // 바닥 오브젝트 렌더링
+    m_CommandList->SetPipelineState(m_PipelineStates[RenderLayer::QuadPatch].Get());
+    RenderGeometry(m_RenderItemLayer[(int)RenderLayer::QuadPatch]);
+
     // AlphaTested 오브젝트 렌더링
     m_CommandList->SetPipelineState(m_PipelineStates[RenderLayer::AlphaTested].Get());
     RenderGeometry(m_RenderItemLayer[(int)RenderLayer::AlphaTested]);
+
+    // 나무 오브젝트 렌더링
+    m_CommandList->SetPipelineState(m_PipelineStates[RenderLayer::Tree].Get());
+    RenderGeometry(m_RenderItemLayer[(int)RenderLayer::Tree]);
 
     // Transparent 오브젝트 렌더링
     m_CommandList->SetPipelineState(m_PipelineStates[RenderLayer::Transparent].Get());
@@ -182,6 +190,8 @@ void D3DSample::BuildGeometry()
     CreateSphereGeometry();
     CreateCylinderGeometry();
     CreateSkullGeometry();
+    CreateQuadPatchGeometry();
+    CreateTreeGeometry();
 }
 
 void D3DSample::BuildTextures()
@@ -260,6 +270,22 @@ void D3DSample::BuildTextures()
         FenceTexture->UploadHeap));
     m_Textures[FenceTexture->Name] = std::move(FenceTexture);
 
+
+    auto TreeTexture = std::make_unique<TextureInfo>();
+    TreeTexture->Name = TEXT("TreeTexture");
+    TreeTexture->FileName = TEXT("../Textures/treearray.dds");
+    TreeTexture->TextureHeapIndex = TextureHeapIndex++;
+    TreeTexture->TextureType = ETextureType::Texture2DArray;
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(
+        m_D3dDevice.Get(),
+        m_CommandList.Get(),
+        TreeTexture->FileName.c_str(),
+        TreeTexture->Resource,
+        TreeTexture->UploadHeap));
+    m_Textures[TreeTexture->Name] = std::move(TreeTexture);
+
+
+    // 스카이박스는 모든 텍스처 배열 다음에 추가한 개별 텍스처
     // 스카이박스 텍스처 생성하기
     m_SkyboxTexture = std::make_unique<TextureInfo>();
     m_SkyboxTexture->Name = TEXT("Skybox");
@@ -344,20 +370,31 @@ void D3DSample::BuildMaterials()
     Mirror->Fresnel = XMFLOAT3(0.98f, 0.97f, 0.95f);
     Mirror->Roughness = 0.1f;
     m_Materials[Mirror->Name] = std::move(Mirror);
+
+    // 나무 재질
+    auto Tree = std::make_unique<MaterialInfo>();
+    Tree->Name = TEXT("Tree");
+    Tree->MatCBIndex = MatCBIndex++;
+    Tree->Texture_On = 1;
+    Tree->TextureHeapIndex = m_Textures[TEXT("TreeTexture")]->TextureHeapIndex;
+    Tree->Albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    Tree->Fresnel = XMFLOAT3(0.1f, 0.1f, 0.1f);
+    Tree->Roughness = 0.1f;
+    m_Materials[Tree->Name] = std::move(Tree);
 }
 
 void D3DSample::BuildRenderItems()
 {
     UINT ObjectCBIndex = 0;
 
-    auto GridItem = std::make_unique<RenderItem>();
-    GridItem->ObjectCBIndex = ObjectCBIndex++;
-    GridItem->World = MathHelper::Identity4x4();
-    XMStoreFloat4x4(&GridItem->TextureTransform, XMMatrixScaling(8.0f, 8.0f, 1.0f));
-    GridItem->Geometry = m_Geometries[TEXT("Grid")].get();
-    GridItem->Material = m_Materials[TEXT("Tile")].get();
-    m_RenderItemLayer[(int)RenderLayer::Opaque].push_back(GridItem.get());
-    m_RenderItems.push_back(std::move(GridItem));
+    //auto GridItem = std::make_unique<RenderItem>();
+    //GridItem->ObjectCBIndex = ObjectCBIndex++;
+    //GridItem->World = MathHelper::Identity4x4();
+    //XMStoreFloat4x4(&GridItem->TextureTransform, XMMatrixScaling(8.0f, 8.0f, 1.0f));
+    //GridItem->Geometry = m_Geometries[TEXT("Grid")].get();
+    //GridItem->Material = m_Materials[TEXT("Tile")].get();
+    //m_RenderItemLayer[(int)RenderLayer::Opaque].push_back(GridItem.get());
+    //m_RenderItems.push_back(std::move(GridItem));
 
     auto BoxItem = std::make_unique<RenderItem>();
     BoxItem->ObjectCBIndex = ObjectCBIndex++;
@@ -425,6 +462,26 @@ void D3DSample::BuildRenderItems()
     SkyboxItem->Material = m_Materials[TEXT("Skybox")].get();
     m_RenderItemLayer[(int)RenderLayer::Skybox].push_back(SkyboxItem.get());
     m_RenderItems.push_back(std::move(SkyboxItem));
+
+    // 바닥 오브젝트 생성
+    auto QuadPathItem = std::make_unique<RenderItem>();
+    QuadPathItem->ObjectCBIndex = ObjectCBIndex++;
+    QuadPathItem->World = MathHelper::Identity4x4();
+    QuadPathItem->Geometry = m_Geometries[TEXT("QuadPatch")].get();
+    QuadPathItem->Material = m_Materials[TEXT("Tile")].get();
+    QuadPathItem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST;
+    m_RenderItemLayer[(int)RenderLayer::QuadPatch].push_back(QuadPathItem.get());
+    m_RenderItems.push_back(std::move(QuadPathItem));
+
+    // 나무 오브젝트 생성
+    auto TreeItem = std::make_unique<RenderItem>();
+    TreeItem->ObjectCBIndex = ObjectCBIndex++;
+    TreeItem->World = MathHelper::Identity4x4();
+    TreeItem->Geometry = m_Geometries[TEXT("Tree")].get();
+    TreeItem->Material = m_Materials[TEXT("Tree")].get();
+    TreeItem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_POINTLIST;
+    m_RenderItemLayer[(int)RenderLayer::Tree].push_back(TreeItem.get());
+    m_RenderItems.push_back(std::move(TreeItem));
 }
 
 void D3DSample::BuildConstantBuffer()
@@ -504,10 +561,23 @@ void D3DSample::BuildDescriptorHeap()
         D3D12_SHADER_RESOURCE_VIEW_DESC TexDesc = {};
         TexDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         TexDesc.Format = TexResource->GetDesc().Format;
-        TexDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        TexDesc.Texture2D.MostDetailedMip = 0;
-        TexDesc.Texture2D.MipLevels = TexResource->GetDesc().MipLevels;
-        TexDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+
+        switch (TexInfo->TextureType)
+        {
+        case ETextureType::Texture2D:
+            TexDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+            TexDesc.Texture2D.MostDetailedMip = 0;
+            TexDesc.Texture2D.MipLevels = TexResource->GetDesc().MipLevels;
+            TexDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+            break;
+        case ETextureType::Texture2DArray:
+            TexDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+            TexDesc.Texture2DArray.MostDetailedMip = 0;
+            TexDesc.Texture2DArray.MipLevels = -1;
+            TexDesc.Texture2DArray.FirstArraySlice = 0;
+            TexDesc.Texture2DArray.ArraySize = TexResource->GetDesc().DepthOrArraySize;
+            break;
+        }        
 
         m_D3dDevice->CreateShaderResourceView(TexResource.Get(), &TexDesc, hDescriptor);
     }
@@ -548,6 +618,15 @@ void D3DSample::BuildShader()
 
     m_Shaders[TEXT("SkyboxVS")] = d3dUtil::CompileShader(TEXT("../Shader/Skybox.hlsl"), nullptr, "VS", "vs_5_0");
     m_Shaders[TEXT("SkyboxPS")] = d3dUtil::CompileShader(TEXT("../Shader/Skybox.hlsl"), nullptr, "PS", "ps_5_0");
+
+    m_Shaders[TEXT("TessVS")] = d3dUtil::CompileShader(TEXT("../Shader/QuadPatch.hlsl"), nullptr, "VS", "vs_5_0");
+    m_Shaders[TEXT("TessHS")] = d3dUtil::CompileShader(TEXT("../Shader/QuadPatch.hlsl"), nullptr, "HS", "hs_5_0");
+    m_Shaders[TEXT("TessDS")] = d3dUtil::CompileShader(TEXT("../Shader/QuadPatch.hlsl"), nullptr, "DS", "ds_5_0");
+    m_Shaders[TEXT("TessPS")] = d3dUtil::CompileShader(TEXT("../Shader/QuadPatch.hlsl"), nullptr, "PS", "ps_5_0");
+
+    m_Shaders[TEXT("TreeVS")] = d3dUtil::CompileShader(TEXT("../Shader/Tree.hlsl"), nullptr, "VS", "vs_5_0");
+    m_Shaders[TEXT("TreeGS")] = d3dUtil::CompileShader(TEXT("../Shader/Tree.hlsl"), nullptr, "GS", "gs_5_0");
+    m_Shaders[TEXT("TreePS")] = d3dUtil::CompileShader(TEXT("../Shader/Tree.hlsl"), AlphaTestedDefines, "PS", "ps_5_0");
 }
 
 void D3DSample::BuildRootSignature()
@@ -586,6 +665,17 @@ void D3DSample::BuildInputLayout()
         {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"TANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+
+    m_QuadPatchInputLayout =
+    {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+
+    m_TreeInputLayout =
+    {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"SIZE", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
     };
 }
 
@@ -671,6 +761,59 @@ void D3DSample::BuildPipelineState()
     };
 
     ThrowIfFailed(m_D3dDevice->CreateGraphicsPipelineState(&SkyboxDesc, IID_PPV_ARGS(&m_PipelineStates[RenderLayer::Skybox])));
+
+    // PSO : QuadPatch Objects
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC QuadPatchDesc = ObjectDesc;
+    QuadPatchDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(m_Shaders[TEXT("TessVS")]->GetBufferPointer()),
+        m_Shaders[TEXT("TessVS")]->GetBufferSize()
+    };
+    QuadPatchDesc.HS =
+    {
+        reinterpret_cast<BYTE*>(m_Shaders[TEXT("TessHS")]->GetBufferPointer()),
+        m_Shaders[TEXT("TessHS")]->GetBufferSize()
+    };
+    QuadPatchDesc.DS =
+    {
+        reinterpret_cast<BYTE*>(m_Shaders[TEXT("TessDS")]->GetBufferPointer()),
+        m_Shaders[TEXT("TessDS")]->GetBufferSize()
+    };
+    QuadPatchDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(m_Shaders[TEXT("TessPS")]->GetBufferPointer()),
+        m_Shaders[TEXT("TessPS")]->GetBufferSize()
+    };
+
+    QuadPatchDesc.InputLayout = { m_QuadPatchInputLayout.data(), (UINT)m_QuadPatchInputLayout.size() };
+    QuadPatchDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    QuadPatchDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+
+    ThrowIfFailed(m_D3dDevice->CreateGraphicsPipelineState(&QuadPatchDesc, IID_PPV_ARGS(&m_PipelineStates[RenderLayer::QuadPatch])));
+
+    // PSO : Tree Objects
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC TreeDesc = ObjectDesc;
+    TreeDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(m_Shaders[TEXT("TreeVS")]->GetBufferPointer()),
+        m_Shaders[TEXT("TreeVS")]->GetBufferSize()
+    };
+    TreeDesc.GS =
+    {
+        reinterpret_cast<BYTE*>(m_Shaders[TEXT("TreeGS")]->GetBufferPointer()),
+        m_Shaders[TEXT("TreeGS")]->GetBufferSize()
+    };
+    TreeDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(m_Shaders[TEXT("TreePS")]->GetBufferPointer()),
+        m_Shaders[TEXT("TreePS")]->GetBufferSize()
+    };
+
+    TreeDesc.InputLayout = { m_TreeInputLayout.data(), (UINT)m_TreeInputLayout.size() };
+    TreeDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+    TreeDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+    ThrowIfFailed(m_D3dDevice->CreateGraphicsPipelineState(&TreeDesc, IID_PPV_ARGS(&m_PipelineStates[RenderLayer::Tree])));
 }
 
 void D3DSample::CreateBoxGeometry()
@@ -908,6 +1051,91 @@ void D3DSample::CreateSkullGeometry()
     m_Geometries[Geometry->Name] = std::move(Geometry);
 }
 
+void D3DSample::CreateQuadPatchGeometry()
+{
+    std::array<QuadPatchVertex, 4> Vertices =
+    {
+        XMFLOAT3(-50.0f, 0.0f, +50.0f),
+        XMFLOAT3(+50.0f, 0.0f, +50.0f),
+        XMFLOAT3(-50.0f, 0.0f, -50.0f),
+        XMFLOAT3(+50.0f, 0.0f, -50.0f),
+    };
+
+    std::array<std::int32_t, 4> Indices = { 0, 1, 2, 3 };
+
+    auto Geometry = std::make_unique<GeometryInfo>();
+    Geometry->Name = TEXT("QuadPatch");
+
+    // 정점 버퍼
+    Geometry->VertexCount = (UINT)Vertices.size();
+    const UINT VBByteSize = Geometry->VertexCount * sizeof(QuadPatchVertex);
+
+    Geometry->VertexBuffer = d3dUtil::CreateDefaultBuffer(m_D3dDevice.Get(), m_CommandList.Get(), Vertices.data(), VBByteSize, Geometry->VertexUploadBuffer);
+
+    Geometry->VertexBufferView.BufferLocation = Geometry->VertexBuffer->GetGPUVirtualAddress();
+    Geometry->VertexBufferView.StrideInBytes = sizeof(QuadPatchVertex);
+    Geometry->VertexBufferView.SizeInBytes = VBByteSize;
+
+    // 인덱스 버퍼
+    Geometry->IndexCount = (UINT)Indices.size();
+    const UINT IBByteSize = Geometry->IndexCount * sizeof(std::int32_t);
+
+    Geometry->IndexBuffer = d3dUtil::CreateDefaultBuffer(m_D3dDevice.Get(), m_CommandList.Get(), Indices.data(), IBByteSize, Geometry->IndexUploadBuffer);
+
+    Geometry->IndexBufferView.BufferLocation = Geometry->IndexBuffer->GetGPUVirtualAddress();
+    Geometry->IndexBufferView.Format = DXGI_FORMAT_R32_UINT;
+    Geometry->IndexBufferView.SizeInBytes = IBByteSize;
+
+    m_Geometries[Geometry->Name] = std::move(Geometry);
+}
+
+void D3DSample::CreateTreeGeometry()
+{
+    static const int TreeCount = 32;
+    std::array<TreeVertex, TreeCount> Vertices;
+    for (UINT i = 0; i < TreeCount; ++i)
+    {
+        float x = MathHelper::RandF(-45.0f, 45.0f);
+        float z = MathHelper::RandF(-45.0f, 50.0f);
+        float y = 4.0f;
+
+        Vertices[i].Pos = XMFLOAT3(x, y, z);
+        Vertices[i].Size = XMFLOAT2(10.0f, 10.0f);
+    }
+
+    std::array<std::int32_t, TreeCount> Indices;
+    for (UINT i = 0; i < TreeCount; ++i)
+    {
+        Indices[i] = i;
+    }
+
+    auto Geometry = std::make_unique<GeometryInfo>();
+    Geometry->Name = TEXT("Tree");
+
+    // 정점 버퍼
+    Geometry->VertexCount = (UINT)Vertices.size();
+    const UINT VBByteSize = Geometry->VertexCount * sizeof(TreeVertex);
+
+    Geometry->VertexBuffer = d3dUtil::CreateDefaultBuffer(m_D3dDevice.Get(), m_CommandList.Get(), Vertices.data(), VBByteSize, Geometry->VertexUploadBuffer);
+
+    Geometry->VertexBufferView.BufferLocation = Geometry->VertexBuffer->GetGPUVirtualAddress();
+    Geometry->VertexBufferView.StrideInBytes = sizeof(TreeVertex);
+    Geometry->VertexBufferView.SizeInBytes = VBByteSize;
+
+    // 인덱스 버퍼
+    Geometry->IndexCount = (UINT)Indices.size();
+    const UINT IBByteSize = Geometry->IndexCount * sizeof(std::int32_t);
+
+    Geometry->IndexBuffer = d3dUtil::CreateDefaultBuffer(m_D3dDevice.Get(), m_CommandList.Get(), Indices.data(), IBByteSize, Geometry->IndexUploadBuffer);
+
+    Geometry->IndexBufferView.BufferLocation = Geometry->IndexBuffer->GetGPUVirtualAddress();
+    Geometry->IndexBufferView.Format = DXGI_FORMAT_R32_UINT;
+    Geometry->IndexBufferView.SizeInBytes = IBByteSize;
+
+    m_Geometries[Geometry->Name] = std::move(Geometry);
+
+}
+
 void D3DSample::UpdateObjectCB(float deltaTime)
 {
     for (size_t i = 0; i < m_RenderItems.size(); ++i)
@@ -1054,7 +1282,7 @@ void D3DSample::RenderGeometry(const std::vector<RenderItem*>& RenderItems)
         // 정점 인덱스 토폴로지 연결
         m_CommandList->IASetVertexBuffers(0, 1, &RenderItem->Geometry->VertexBufferView);
         m_CommandList->IASetIndexBuffer(&RenderItem->Geometry->IndexBufferView);
-        m_CommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        m_CommandList->IASetPrimitiveTopology(RenderItem->PrimitiveType);
 
         // 렌더링
         m_CommandList->DrawIndexedInstanced(RenderItem->Geometry->IndexCount, 1, 0, 0, 0);
