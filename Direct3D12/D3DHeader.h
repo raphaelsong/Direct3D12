@@ -35,6 +35,8 @@ enum class RenderLayer : int
 	Skybox,
 	QuadPatch,
 	Tree,
+	ShadowMap,
+	ShadowMapDebug,
 	Count
 };
 
@@ -164,6 +166,7 @@ struct PassConstant
 	XMFLOAT4X4	Proj = MathHelper::Identity4x4();
 	XMFLOAT4X4	InvProj = MathHelper::Identity4x4();
 	XMFLOAT4X4	ViewProj = MathHelper::Identity4x4();
+	XMFLOAT4X4	ShadowTransform = MathHelper::Identity4x4();
 
 	XMFLOAT4	AmbientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
 	XMFLOAT3	EyePosW = { 0.0f, 0.0f, 0.0f };

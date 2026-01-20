@@ -422,7 +422,7 @@ void D3DRenderer::CreateRtvDescriptorHeap()
 void D3DRenderer::CreateDsvDescriptorHeap()
 {
 	D3D12_DESCRIPTOR_HEAP_DESC DsvHeapDesc;
-	DsvHeapDesc.NumDescriptors = 1;
+	DsvHeapDesc.NumDescriptors = 2;
 	DsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
 	DsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	DsvHeapDesc.NodeMask = 0;

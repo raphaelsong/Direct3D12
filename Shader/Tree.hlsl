@@ -102,7 +102,7 @@ float4 PS(GeoOut pin) : SV_Target
     
     Material mat = { diffuseAlbedo, gFresnel, shininess };
     
-    float4 directLight = ComputeLighting(gLights, gLightCount, mat, pin.PosW, bumpedNormalW, toEyeW);
+    float4 directLight = ComputeLighting(gLights, gLightCount, mat, pin.PosW, bumpedNormalW, toEyeW, 1.0f);
     
     float4 litColor = ambient + directLight;
     
