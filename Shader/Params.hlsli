@@ -56,6 +56,11 @@ cbuffer cbMaterial : register(b2)
     float2 gTexPadding;
 }
 
+cbuffer cbSkinned : register(b3)
+{
+    float4x4 gBoneTransform[96];
+}
+
 Texture2D gTexture_Diffuse : register(t0);
 Texture2D gTexture_Normal : register(t1);
 TextureCube gCube_Skybox : register(t2);

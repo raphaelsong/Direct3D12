@@ -15,6 +15,8 @@
 #include "../Common/UploadBuffer.h"
 #include "../Common/DDSTextureLoader.h"
 #include "../Common/GeometryGenerator.h"
+#include "../Common/LoadM3d.h"
+#include "../Common/SkinnedData.h"
 
 // Link necessary d3d12 libraries.
 #pragma comment(lib,"d3dcompiler.lib")
@@ -37,6 +39,7 @@ enum class RenderLayer : int
 	Tree,
 	ShadowMap,
 	ShadowMapDebug,
+	SkinnedOpaque,
 	Count
 };
 
@@ -89,6 +92,12 @@ struct GeometryInfo
 
 	// 인덱스 갯수
 	UINT IndexCount = 0;
+
+	// 첫 Index 위치
+	UINT StartIndexLocation = 0;
+
+	// Vertex 위치
+	int BaseVertexLocation = 0;
 };
 
 struct TextureInfo
@@ -119,6 +128,24 @@ struct MaterialInfo
 	float Roughness = 0.25f;
 };
 
+struct SkinnedModelAnimation
+{
+	SkinnedData* SkinnedInfo = nullptr;
+	std::vector<XMFLOAT4X4> FinalTransforms;
+	std::string ClipName;
+	float TimePos = 0.0f;
+
+	void UpdateSkinnedAnimation(float deltaTime)
+	{
+		TimePos += deltaTime;
+
+		if (TimePos > SkinnedInfo->GetClipEndTime(ClipName))
+			TimePos = 0.0f;
+
+		SkinnedInfo->GetFinalTransforms(ClipName, TimePos, FinalTransforms);
+	}
+};
+
 // 렌더링할 아이템 구조체
 struct RenderItem
 {
@@ -134,6 +161,9 @@ struct RenderItem
 
 	GeometryInfo* Geometry = nullptr;
 	MaterialInfo* Material = nullptr;
+
+	SkinnedModelAnimation* SkinnedAnimation = nullptr;
+	UINT SkinnedCBIndex = 0;
 };
 
 // 조명 정보
@@ -188,4 +218,10 @@ struct MatConstant
 	UINT Texture_On = 0;
 	UINT Normal_On = 0;
 	XMFLOAT2 Padding = { 0.0f, 0.0f };
+};
+
+// 스킨드 모델 본 행렬 버퍼
+struct SkinnedConstant
+{
+	XMFLOAT4X4 BoneTransforms[96];
 };

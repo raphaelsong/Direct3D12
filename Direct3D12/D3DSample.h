@@ -48,12 +48,14 @@ private:
 	void CreateQuadPatchGeometry();
 	void CreateTreeGeometry();
 	void CreateQuadGeometry();
+	void CreateSkinnedModel();
 
 public:
 	void UpdateObjectCB(float deltaTime);
 	void UpdatePassCB(float deltaTime);
 	void UpdateMaterialCB(float deltaTime);
 	void UpdateShadowMapPassCB(float deltaTime);
+	void UpdateSkinnedCB(float deltaTime);
 
 	void UpdateCamera(float deltaTime);
 	void UpdateLight(float deltaTime);
@@ -97,6 +99,11 @@ private:
 	BYTE* m_MaterialMappedData = nullptr;
 	UINT m_MaterialByteSize = 0;
 
+	// 스킨드 오브젝트 상수 버퍼
+	ComPtr<ID3D12Resource>	m_SkinnedCB = nullptr;
+	BYTE* m_SkinnedMappedData = nullptr;
+	UINT m_SkinnedByteSize = 0;
+
 	// 텍스처 서술자 힙
 	ComPtr<ID3D12DescriptorHeap> m_TextureDescriptorHeap = nullptr;
 
@@ -111,6 +118,9 @@ private:
 
 	// 나무 입력 배치
 	std::vector<D3D12_INPUT_ELEMENT_DESC> m_TreeInputLayout;
+
+	// 스킨드 오브젝트 입력 배치
+	std::vector<D3D12_INPUT_ELEMENT_DESC> m_SkinnedInputLayout;
 
 	// 셰이더 맵
 	std::unordered_map<std::wstring, ComPtr<ID3DBlob>> m_Shaders;
@@ -133,6 +143,16 @@ private:
 
 	UINT			m_ShadowMapWidth = 2048;
 	UINT			m_ShadowMapHeight = 2048;
+
+// Skinned Model 정보 
+private:
+	// Skinned Model Load 정보
+	std::string m_SkinnedModelFileName = "../3DModels/soldier.m3d";
+	std::vector<M3DLoader::Subset> m_SkinnedSubsets;
+	std::vector<M3DLoader::M3dMaterial> m_SkinnedMaterials;
+	SkinnedData m_SkinnedInfo;
+
+	std::unique_ptr<SkinnedModelAnimation> m_SkinnedModelAnimation;
 
 private:
 	// 카메라 클래스

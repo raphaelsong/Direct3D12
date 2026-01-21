@@ -61,6 +61,7 @@ void D3DSample::Update(float deltaTime)
 {
     UpdateObjectCB(deltaTime);
     UpdateMaterialCB(deltaTime);
+    UpdateSkinnedCB(deltaTime);
 }
 
 void D3DSample::LateUpdate(float deltaTime)
@@ -122,6 +123,10 @@ void D3DSample::Render()
     // 개별 오브젝트 렌더링
     m_CommandList->SetPipelineState(m_PipelineStates[RenderLayer::Opaque].Get());
     RenderGeometry(m_RenderItemLayer[(int)RenderLayer::Opaque]);
+
+    // Skinned Object Rendering
+    m_CommandList->SetPipelineState(m_PipelineStates[RenderLayer::SkinnedOpaque].Get());
+    RenderGeometry(m_RenderItemLayer[(int)RenderLayer::SkinnedOpaque]);
 
     // 바닥 오브젝트 렌더링
     m_CommandList->SetPipelineState(m_PipelineStates[RenderLayer::QuadPatch].Get());
@@ -231,6 +236,7 @@ void D3DSample::BuildGeometry()
     CreateQuadPatchGeometry();
     CreateTreeGeometry();
     CreateQuadGeometry();
+    CreateSkinnedModel();
 }
 
 void D3DSample::BuildTextures()
@@ -323,6 +329,54 @@ void D3DSample::BuildTextures()
         TreeTexture->UploadHeap));
     m_Textures[TreeTexture->Name] = std::move(TreeTexture);
 
+    // Skinned Object Texture
+    for (size_t i = 0; i < m_SkinnedMaterials.size(); ++i)
+    {
+        std::wstring diffuseName = AnsiToWString(m_SkinnedMaterials[i].DiffuseMapName);
+        std::wstring normalName = AnsiToWString(m_SkinnedMaterials[i].NormalMapName);
+
+        std::wstring diffuseFileName = TEXT("../3DModels/") + diffuseName;
+        std::wstring normalFileName = TEXT("../3DModels/") + normalName;
+        
+        diffuseName = diffuseName.substr(0, diffuseName.find_last_of(TEXT(".")));
+        normalName = normalName.substr(0, normalName.find_last_of(TEXT(".")));
+
+        // Diffuse Texture Add
+        if (m_Textures.find(diffuseName) == m_Textures.end())
+        {
+            auto TexDiff = std::make_unique<TextureInfo>();
+            TexDiff->Name = diffuseName;
+            TexDiff->FileName = diffuseFileName;
+            TexDiff->TextureHeapIndex = TextureHeapIndex++;
+
+            ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(
+                m_D3dDevice.Get(),
+                m_CommandList.Get(),
+                TexDiff->FileName.c_str(),
+                TexDiff->Resource,
+                TexDiff->UploadHeap));
+
+            m_Textures[TexDiff->Name] = std::move(TexDiff);
+        }
+ 
+        // Normal Texture Add
+        if (m_Textures.find(normalName) == m_Textures.end())
+        {
+            auto TexNor = std::make_unique<TextureInfo>();
+            TexNor->Name = normalName;
+            TexNor->FileName = normalFileName;
+            TexNor->TextureHeapIndex = TextureHeapIndex++;
+
+            ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(
+                m_D3dDevice.Get(),
+                m_CommandList.Get(),
+                TexNor->FileName.c_str(),
+                TexNor->Resource,
+                TexNor->UploadHeap));
+
+            m_Textures[TexNor->Name] = std::move(TexNor);
+        }
+    }
 
     // 스카이박스는 모든 텍스처 배열 다음에 추가한 개별 텍스처
     // 스카이박스 텍스처 생성하기
@@ -420,6 +474,34 @@ void D3DSample::BuildMaterials()
     Tree->Fresnel = XMFLOAT3(0.1f, 0.1f, 0.1f);
     Tree->Roughness = 0.1f;
     m_Materials[Tree->Name] = std::move(Tree);
+
+    // Skinned Object Material
+    for (size_t i = 0; i < m_SkinnedMaterials.size(); ++i)
+    {
+        std::wstring diffuseName = AnsiToWString(m_SkinnedMaterials[i].DiffuseMapName);
+        std::wstring normalName = AnsiToWString(m_SkinnedMaterials[i].NormalMapName);
+
+        diffuseName = diffuseName.substr(0, diffuseName.find_last_of(TEXT(".")));
+        normalName = normalName.substr(0, normalName.find_last_of(TEXT(".")));
+
+        auto SkinnedMat = std::make_unique<MaterialInfo>();
+        SkinnedMat->Name = AnsiToWString(m_SkinnedMaterials[i].Name);
+        SkinnedMat->MatCBIndex = MatCBIndex++;
+        if (m_Textures[diffuseName])
+        {
+            SkinnedMat->Texture_On = 1;
+            SkinnedMat->TextureHeapIndex = m_Textures[diffuseName]->TextureHeapIndex;
+        }
+        if (m_Textures[normalName])
+        {
+            SkinnedMat->Normal_On = 1;
+        }
+        SkinnedMat->Albedo = m_SkinnedMaterials[i].DiffuseAlbedo;
+        SkinnedMat->Fresnel = m_SkinnedMaterials[i].FresnelR0;
+        SkinnedMat->Roughness = m_SkinnedMaterials[i].Roughness;
+
+        m_Materials[SkinnedMat->Name] = std::move(SkinnedMat);
+    }
 }
 
 void D3DSample::BuildRenderItems()
@@ -502,14 +584,14 @@ void D3DSample::BuildRenderItems()
     m_RenderItemLayer[(int)RenderLayer::Skybox].push_back(SkyboxItem.get());
     m_RenderItems.push_back(std::move(SkyboxItem));
 
-    // 쉐도우맵 텍스처 쿼드 오브젝트 생성
-    auto QuadItem = std::make_unique<RenderItem>();
-    QuadItem->ObjectCBIndex = ObjectCBIndex++;
-    QuadItem->World = MathHelper::Identity4x4();
-    QuadItem->Geometry = m_Geometries[TEXT("Quad")].get();
-    QuadItem->Material = m_Materials[TEXT("Tile")].get();
-    m_RenderItemLayer[(int)RenderLayer::ShadowMapDebug].push_back(QuadItem.get());
-    m_RenderItems.push_back(std::move(QuadItem));
+    //// 쉐도우맵 텍스처 쿼드 오브젝트 생성
+    //auto QuadItem = std::make_unique<RenderItem>();
+    //QuadItem->ObjectCBIndex = ObjectCBIndex++;
+    //QuadItem->World = MathHelper::Identity4x4();
+    //QuadItem->Geometry = m_Geometries[TEXT("Quad")].get();
+    //QuadItem->Material = m_Materials[TEXT("Tile")].get();
+    //m_RenderItemLayer[(int)RenderLayer::ShadowMapDebug].push_back(QuadItem.get());
+    //m_RenderItems.push_back(std::move(QuadItem));
 
 
     //// 바닥 오브젝트 생성
@@ -531,6 +613,28 @@ void D3DSample::BuildRenderItems()
     //TreeItem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_POINTLIST;
     //m_RenderItemLayer[(int)RenderLayer::Tree].push_back(TreeItem.get());
     //m_RenderItems.push_back(std::move(TreeItem));
+
+    // Skinned Object 생성
+    for (size_t i = 0; i < m_SkinnedSubsets.size(); ++i)
+    {
+        std::wstring subMeshName = TEXT("sm_") + std::to_wstring(i);
+        std::wstring materialName = AnsiToWString(m_SkinnedMaterials[i].Name);
+
+        auto SkinnedItem = std::make_unique<RenderItem>();
+        XMMATRIX modelScale = XMMatrixScaling(0.05f, 0.05f, -0.05f);
+        XMMATRIX modelRot = XMMatrixRotationY(MathHelper::Pi);
+        XMMATRIX modelTrans = XMMatrixTranslation(0.0f, 0.0f, -5.0f);
+        XMStoreFloat4x4(&SkinnedItem->World, modelScale * modelRot * modelTrans);
+        SkinnedItem->ObjectCBIndex = ObjectCBIndex++;
+        SkinnedItem->Geometry = m_Geometries[subMeshName].get();
+        SkinnedItem->Material = m_Materials[materialName].get();
+
+        SkinnedItem->SkinnedCBIndex = 0;
+        SkinnedItem->SkinnedAnimation = m_SkinnedModelAnimation.get();
+
+        m_RenderItemLayer[(int)RenderLayer::SkinnedOpaque].push_back(SkinnedItem.get());
+        m_RenderItems.push_back(std::move(SkinnedItem));
+    }
 }
 
 void D3DSample::BuildConstantBuffer()
@@ -586,7 +690,22 @@ void D3DSample::BuildConstantBuffer()
 
     m_MaterialCB->Map(0, nullptr, reinterpret_cast<void**>(&m_MaterialMappedData));
 
+    // 스킨드 오브젝트 상수 버퍼 생성
+    UINT SkinnedSize = sizeof(SkinnedConstant);
+    m_SkinnedByteSize = ((SkinnedSize + 255) & ~255);
 
+    D3D12_RESOURCE_DESC SkinnedDesc = CD3DX12_RESOURCE_DESC::Buffer(m_SkinnedByteSize);
+    D3D12_HEAP_PROPERTIES SkinnedHeap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
+
+    m_D3dDevice->CreateCommittedResource(
+        &SkinnedHeap,
+        D3D12_HEAP_FLAG_NONE,
+        &SkinnedDesc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(&m_SkinnedCB));
+
+    m_SkinnedCB->Map(0, nullptr, reinterpret_cast<void**>(&m_SkinnedMappedData));
 }
 
 void D3DSample::BuildDescriptorHeap()
@@ -713,6 +832,14 @@ void D3DSample::BuildShader()
 
     m_Shaders[TEXT("DebugVS")] = d3dUtil::CompileShader(TEXT("../Shader/ShadowMapDebug.hlsl"), nullptr, "VS", "vs_5_0");
     m_Shaders[TEXT("DebugPS")] = d3dUtil::CompileShader(TEXT("../Shader/ShadowMapDebug.hlsl"), nullptr, "PS", "ps_5_0");
+
+    const D3D_SHADER_MACRO SkinnedDefines[] =
+    {
+        "SKINNED", "1",
+        NULL, NULL
+    };
+
+    m_Shaders[TEXT("SkinnedVS")] = d3dUtil::CompileShader(TEXT("../Shader/Default.hlsl"), SkinnedDefines, "VS", "vs_5_0");
 }
 
 void D3DSample::BuildRootSignature()
@@ -727,13 +854,15 @@ void D3DSample::BuildRootSignature()
     CD3DX12_DESCRIPTOR_RANGE ShadowMapTable[1];
     ShadowMapTable[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3); // t3 : ShadowMap Texture
 
-    CD3DX12_ROOT_PARAMETER Params[6];
+    CD3DX12_ROOT_PARAMETER Params[7];
     Params[0].InitAsConstantBufferView(0); // 0번 -> b0 : CBV m_ObjectCB
     Params[1].InitAsConstantBufferView(1); // 1번 -> b1 : CBV m_PassCB
     Params[2].InitAsConstantBufferView(2); // 2번 -> b2 : CBV m_MaterialCB
     Params[3].InitAsDescriptorTable(_countof(TextureTable), TextureTable);      // 3번 -> t0, t1 TexTable
     Params[4].InitAsDescriptorTable(_countof(SkyboxTable), SkyboxTable);        // 4번 -> t2, Skybox Table
     Params[5].InitAsDescriptorTable(_countof(ShadowMapTable), ShadowMapTable);  // 5번 -> t3, ShadowMap Table
+    Params[6].InitAsConstantBufferView(3); // 6번 -> b3 : CBV m_SkinnedCB
+
 
     const CD3DX12_STATIC_SAMPLER_DESC pointWrap(
         0, // s0
@@ -787,6 +916,17 @@ void D3DSample::BuildInputLayout()
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"SIZE", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
     };
+
+    m_SkinnedInputLayout =
+    {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"WEIGHTS", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 44, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"BONEINDICES", 0, DXGI_FORMAT_R8G8B8A8_UINT, 0, 56, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+
 }
 
 void D3DSample::BuildPipelineState()
@@ -960,6 +1100,22 @@ void D3DSample::BuildPipelineState()
     };
 
     ThrowIfFailed(m_D3dDevice->CreateGraphicsPipelineState(&DebugDesc, IID_PPV_ARGS(&m_PipelineStates[RenderLayer::ShadowMapDebug])));
+
+    // PSO : SkinnedOpaque Objects
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC SkinnedDesc = ObjectDesc;
+    SkinnedDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(m_Shaders[TEXT("SkinnedVS")]->GetBufferPointer()),
+        m_Shaders[TEXT("SkinnedVS")]->GetBufferSize()
+    };
+    SkinnedDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(m_Shaders[TEXT("PS")]->GetBufferPointer()),
+        m_Shaders[TEXT("PS")]->GetBufferSize()
+    };
+
+    SkinnedDesc.InputLayout = { m_SkinnedInputLayout.data(), (UINT)m_SkinnedInputLayout.size() };
+    ThrowIfFailed(m_D3dDevice->CreateGraphicsPipelineState(&SkinnedDesc, IID_PPV_ARGS(&m_PipelineStates[RenderLayer::SkinnedOpaque])));
 }
 
 void D3DSample::CreateBoxGeometry()
@@ -1325,6 +1481,53 @@ void D3DSample::CreateQuadGeometry()
     m_Geometries[Geometry->Name] = std::move(Geometry);
 }
 
+void D3DSample::CreateSkinnedModel()
+{
+    std::vector<M3DLoader::SkinnedVertex> Vertices;
+    std::vector<std::uint16_t> Indices;
+
+    M3DLoader ModelLoader;
+    ModelLoader.LoadM3d(m_SkinnedModelFileName, Vertices, Indices, m_SkinnedSubsets, m_SkinnedMaterials, m_SkinnedInfo);
+
+    m_SkinnedModelAnimation = std::make_unique<SkinnedModelAnimation>();
+    m_SkinnedModelAnimation->SkinnedInfo = &m_SkinnedInfo;
+    m_SkinnedModelAnimation->FinalTransforms.resize(m_SkinnedInfo.BoneCount());
+    m_SkinnedModelAnimation->ClipName = "Take1";
+    m_SkinnedModelAnimation->TimePos = 0.0f;
+
+    for (UINT i = 0; i < (UINT)m_SkinnedSubsets.size(); ++i)
+    {
+        auto Geometry = std::make_unique<GeometryInfo>();
+        Geometry->Name = TEXT("sm_") + std::to_wstring(i);
+
+        // 정점 버퍼
+        Geometry->VertexCount = (UINT)Vertices.size();
+        const UINT VBByteSize = Geometry->VertexCount * sizeof(M3DLoader::SkinnedVertex);
+
+        Geometry->VertexBuffer = d3dUtil::CreateDefaultBuffer(m_D3dDevice.Get(), m_CommandList.Get(), Vertices.data(), VBByteSize, Geometry->VertexUploadBuffer);
+
+        Geometry->VertexBufferView.BufferLocation = Geometry->VertexBuffer->GetGPUVirtualAddress();
+        Geometry->VertexBufferView.StrideInBytes = sizeof(M3DLoader::SkinnedVertex);
+        Geometry->VertexBufferView.SizeInBytes = VBByteSize;
+
+        // 인덱스 버퍼
+        Geometry->IndexCount = (UINT)Indices.size();
+        const UINT IBByteSize = Geometry->IndexCount * sizeof(std::uint16_t);
+
+        Geometry->IndexBuffer = d3dUtil::CreateDefaultBuffer(m_D3dDevice.Get(), m_CommandList.Get(), Indices.data(), IBByteSize, Geometry->IndexUploadBuffer);
+
+        Geometry->IndexBufferView.BufferLocation = Geometry->IndexBuffer->GetGPUVirtualAddress();
+        Geometry->IndexBufferView.Format = DXGI_FORMAT_R16_UINT;
+        Geometry->IndexBufferView.SizeInBytes = IBByteSize;
+
+        Geometry->IndexCount = (UINT)m_SkinnedSubsets[i].FaceCount * 3;
+        Geometry->StartIndexLocation = m_SkinnedSubsets[i].FaceStart * 3;
+        Geometry->BaseVertexLocation = 0;
+
+        m_Geometries[Geometry->Name] = std::move(Geometry);
+    }
+}
+
 void D3DSample::UpdateObjectCB(float deltaTime)
 {
     for (size_t i = 0; i < m_RenderItems.size(); ++i)
@@ -1421,6 +1624,19 @@ void D3DSample::UpdateShadowMapPassCB(float deltaTime)
 
     UINT PassCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(PassConstant));
     memcpy(&m_PassMappedData[1 * PassCBByteSize], &ShadowMapPassCB, sizeof(PassConstant));
+}
+
+void D3DSample::UpdateSkinnedCB(float deltaTime)
+{
+    m_SkinnedModelAnimation->UpdateSkinnedAnimation(deltaTime);
+    
+    SkinnedConstant SkinnedCB;
+    std::copy(
+        std::begin(m_SkinnedModelAnimation->FinalTransforms),
+        std::end(m_SkinnedModelAnimation->FinalTransforms),
+        &SkinnedCB.BoneTransforms[0]);
+
+    memcpy(&m_SkinnedMappedData[0], &SkinnedCB, sizeof(SkinnedConstant));
 }
 
 void D3DSample::UpdateCamera(float deltaTime)
@@ -1526,6 +1742,7 @@ void D3DSample::RenderGeometry(const std::vector<RenderItem*>& RenderItems)
 {
     UINT ObjectCBByteSize = (sizeof(ObjectConstant) + 255) & ~255;
     UINT MaterialCBByteSize = (sizeof(MatConstant) + 255) & ~255;
+    UINT SkinnedCBByteSize = (sizeof(SkinnedConstant) + 255) & ~255;
 
     for (size_t i = 0; i < RenderItems.size(); ++i)
     {
@@ -1534,25 +1751,25 @@ void D3DSample::RenderGeometry(const std::vector<RenderItem*>& RenderItems)
         // 개별 오브젝트 상수(월드행렬) 버퍼 정보 업로드
         D3D12_GPU_VIRTUAL_ADDRESS ObjectCBAddress = m_ObjectCB->GetGPUVirtualAddress();
         ObjectCBAddress += RenderItem->ObjectCBIndex * ObjectCBByteSize;
-
         m_CommandList->SetGraphicsRootConstantBufferView(0, ObjectCBAddress);
 
         // 개별 오브젝트 재질 버퍼 정보 업로드
         D3D12_GPU_VIRTUAL_ADDRESS MaterialCBAddress = m_MaterialCB->GetGPUVirtualAddress();
         MaterialCBAddress += RenderItem->Material->MatCBIndex * MaterialCBByteSize;
-
         m_CommandList->SetGraphicsRootConstantBufferView(2, MaterialCBAddress);
-
-        // 
 
         // 텍스처 버퍼 서술자 업로드
         CD3DX12_GPU_DESCRIPTOR_HANDLE TextureHeapAddress(m_TextureDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
         TextureHeapAddress.Offset(RenderItem->Material->TextureHeapIndex, m_CbvSrvUavDescriptorSize);
-
         if (RenderItem->Material->Texture_On)
         {
             m_CommandList->SetGraphicsRootDescriptorTable(3, TextureHeapAddress);
         }
+
+        // 스킨트 오브젝트의 본행렬
+        D3D12_GPU_VIRTUAL_ADDRESS SkinnedCBAddress = m_SkinnedCB->GetGPUVirtualAddress();
+        SkinnedCBAddress += RenderItem->SkinnedCBIndex * SkinnedCBByteSize;
+        m_CommandList->SetGraphicsRootConstantBufferView(6, SkinnedCBAddress);
 
         // 정점 인덱스 토폴로지 연결
         m_CommandList->IASetVertexBuffers(0, 1, &RenderItem->Geometry->VertexBufferView);
@@ -1560,7 +1777,12 @@ void D3DSample::RenderGeometry(const std::vector<RenderItem*>& RenderItems)
         m_CommandList->IASetPrimitiveTopology(RenderItem->PrimitiveType);
 
         // 렌더링
-        m_CommandList->DrawIndexedInstanced(RenderItem->Geometry->IndexCount, 1, 0, 0, 0);
+        m_CommandList->DrawIndexedInstanced(
+            RenderItem->Geometry->IndexCount,
+            1,
+            RenderItem->Geometry->StartIndexLocation,
+            RenderItem->Geometry->BaseVertexLocation,
+            0);           
     }
 }
 
